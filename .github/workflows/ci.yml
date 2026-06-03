@@ -1,0 +1,50 @@
+name: CI
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main, develop]
+
+jobs:
+  build-test:
+    name: Lint, build & test
+    runs-on: ubuntu-latest
+
+    services:
+      mongo:
+        image: mongo:7
+        ports:
+          - 27017:27017
+
+    env:
+      NODE_ENV: test
+      MONGODB_URI: mongodb://localhost:27017/spendes_test
+      JWT_ACCESS_SECRET: ci_access_secret_0123456789abcdef
+      JWT_REFRESH_SECRET: ci_refresh_secret_0123456789abcdef
+      REDIS_ENABLED: 'false'
+      SWAGGER_ENABLED: 'false'
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Lint
+        run: npm run lint:check
+
+      - name: Build
+        run: npm run build
+
+      - name: Unit tests
+        run: npm test -- --ci
+
+      - name: E2E tests
+        run: npm run test:e2e -- --ci

@@ -1,0 +1,25 @@
+# Normalize line endings to LF on commit across all platforms.
+# Prevents Windows CRLF from breaking Prettier (endOfLine: lf) and CI on Linux.
+* text=auto eol=lf
+
+# Source & config — always LF
+*.ts   text eol=lf
+*.js   text eol=lf
+*.mjs  text eol=lf
+*.cjs  text eol=lf
+*.json text eol=lf
+*.yml  text eol=lf
+*.yaml text eol=lf
+*.md   text eol=lf
+*.sh   text eol=lf
+
+# Husky hooks must be LF to execute correctly
+.husky/* text eol=lf
+
+# Binary assets — never normalize
+*.png  binary
+*.jpg  binary
+*.jpeg binary
+*.gif  binary
+*.ico  binary
+*.pdf  binary
