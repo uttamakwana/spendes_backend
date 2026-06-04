@@ -4,14 +4,23 @@ import { User } from '../schemas/user.schema';
 
 /**
  * The public-facing representation of a user. Built explicitly via {@link fromEntity}
- * so sensitive fields (password hash, refresh-token hash) can never leak.
+ * so sensitive fields (refresh-token hash) can never leak.
  */
 export class UserResponseDto {
   @ApiProperty({ example: '665f1b2c8e4b2a0012a3b4c5' })
   id: string;
 
-  @ApiProperty({ example: 'jane.doe@example.com' })
-  email: string;
+  @ApiProperty({ example: '+91' })
+  dialCode: string;
+
+  @ApiProperty({ example: '9876543210' })
+  phoneNumber: string;
+
+  @ApiProperty({ example: '+919876543210', description: 'Full E.164 number for display.' })
+  phoneE164: string;
+
+  @ApiPropertyOptional({ example: 'jane.doe@example.com' })
+  email?: string;
 
   @ApiProperty({ example: 'Jane' })
   firstName: string;
@@ -22,9 +31,6 @@ export class UserResponseDto {
   @ApiProperty({ example: 'Jane Doe' })
   fullName: string;
 
-  @ApiPropertyOptional({ example: '+919876543210' })
-  phoneNumber?: string;
-
   @ApiPropertyOptional()
   avatarUrl?: string;
 
@@ -33,6 +39,9 @@ export class UserResponseDto {
 
   @ApiProperty({ example: 'INR' })
   defaultCurrency: string;
+
+  @ApiProperty({ example: true })
+  isPhoneVerified: boolean;
 
   @ApiProperty({ example: false })
   isEmailVerified: boolean;
@@ -52,14 +61,17 @@ export class UserResponseDto {
   static fromEntity(user: User): UserResponseDto {
     const dto = new UserResponseDto();
     dto.id = user._id.toString();
+    dto.dialCode = user.dialCode;
+    dto.phoneNumber = user.phoneNumber;
+    dto.phoneE164 = `${user.dialCode}${user.phoneNumber}`;
     dto.email = user.email;
     dto.firstName = user.firstName;
     dto.lastName = user.lastName;
     dto.fullName = `${user.firstName} ${user.lastName}`.trim();
-    dto.phoneNumber = user.phoneNumber;
     dto.avatarUrl = user.avatarUrl;
     dto.roles = user.roles;
     dto.defaultCurrency = user.defaultCurrency;
+    dto.isPhoneVerified = user.isPhoneVerified;
     dto.isEmailVerified = user.isEmailVerified;
     dto.isActive = user.isActive;
     dto.lastLoginAt = user.lastLoginAt;

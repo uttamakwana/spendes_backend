@@ -7,8 +7,10 @@ import { Role } from '../enums/role.enum';
  */
 export interface AuthenticatedUser {
   id: string;
-  email: string;
   roles: Role[];
+  /** National number without dial code; present once loaded by the JWT strategy. */
+  phoneNumber?: string;
+  email?: string;
 }
 
 /**

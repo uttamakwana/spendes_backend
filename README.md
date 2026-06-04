@@ -175,7 +175,10 @@ Generate secrets with `openssl rand -hex 32`.
 - **Pagination**: accept `PaginationQueryDto`, return `PaginatedResponseDto` (use
   `@ApiPaginatedResponse()` for docs).
 - **Serialization**: never return raw documents — map to a `*ResponseDto` so secrets
-  (password/refresh-token hashes) can never leak.
+  (refresh-token / OTP hashes) can never leak.
+- **Auth model**: phone number + OTP (no passwords). Identity is the `(dialCode, phoneNumber)`
+  pair; codes are issued/verified by the auth module's `OtpService` and delivered through a
+  pluggable `SmsProvider` (console stub in dev). Clients store the returned bearer tokens.
 - **Commits**: Conventional Commits, enforced by commitlint + Husky.
 
 ---

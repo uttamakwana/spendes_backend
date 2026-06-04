@@ -1,4 +1,4 @@
-import { AppConfiguration } from './config.types';
+import { AppConfiguration, SmsProviderName } from './config.types';
 import { Environment } from './env.validation';
 
 const toBool = (value: string | undefined, fallback = false): boolean => {
@@ -67,6 +67,22 @@ export default (): AppConfiguration => {
     },
     security: {
       bcryptSaltRounds: toInt(process.env.BCRYPT_SALT_ROUNDS, 10),
+    },
+    otp: {
+      length: toInt(process.env.OTP_LENGTH, 6),
+      ttlSeconds: toInt(process.env.OTP_TTL_SECONDS, 300),
+      maxAttempts: toInt(process.env.OTP_MAX_ATTEMPTS, 5),
+      resendCooldownSeconds: toInt(process.env.OTP_RESEND_COOLDOWN_SECONDS, 30),
+      mockEnabled: toBool(process.env.OTP_MOCK_ENABLED, true),
+      mockCode: process.env.OTP_MOCK_CODE ?? '123456',
+    },
+    sms: {
+      provider: (process.env.SMS_PROVIDER ?? 'console') as SmsProviderName,
+      from: process.env.SMS_FROM ?? 'Spendes',
+    },
+    phone: {
+      defaultDialCode: process.env.PHONE_DEFAULT_DIAL_CODE ?? '+91',
+      allowedDialCodes: toList(process.env.PHONE_ALLOWED_DIAL_CODES, '+91'),
     },
     throttle: {
       ttl: toInt(process.env.THROTTLE_TTL, 60),

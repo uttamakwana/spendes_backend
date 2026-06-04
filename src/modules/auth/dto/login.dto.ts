@@ -1,13 +1,14 @@
 import { ApiProperty } from '@nestjs/swagger';
-import { IsEmail, IsNotEmpty, IsString } from 'class-validator';
+import { IsString, Matches } from 'class-validator';
+import { PhoneNumberDto } from '../../../common/dto/phone-number.dto';
 
-export class LoginDto {
-  @ApiProperty({ example: 'jane.doe@example.com' })
-  @IsEmail()
-  email: string;
-
-  @ApiProperty({ example: 'P@ssw0rd123' })
+/**
+ * Login for an existing account: phone identity + the OTP just received.
+ * (Request the code first via `POST /auth/otp/request`.)
+ */
+export class LoginDto extends PhoneNumberDto {
+  @ApiProperty({ example: '123456', description: 'The one-time code sent over SMS.' })
   @IsString()
-  @IsNotEmpty()
-  password: string;
+  @Matches(/^\d{4,8}$/, { message: 'otp must be 4-8 digits' })
+  otp: string;
 }

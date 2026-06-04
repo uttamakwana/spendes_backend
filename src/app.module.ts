@@ -44,7 +44,7 @@ import { RedisModule } from './redis/redis.module';
             redact: [
               'req.headers.authorization',
               'req.headers.cookie',
-              'req.body.password',
+              'req.body.otp',
               'req.body.refreshToken',
             ],
             genReqId: (req: IncomingMessage, res: ServerResponse) => {

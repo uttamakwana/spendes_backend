@@ -1,50 +1,39 @@
 import { ConflictException, Injectable, Logger } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
-import * as bcrypt from 'bcryptjs';
 import { FilterQuery, UpdateQuery } from 'mongoose';
 import { PaginationQueryDto } from '../../common/dto/pagination-query.dto';
 import { PaginatedResponseDto } from '../../common/dto/pagination-response.dto';
-import { AppConfiguration } from '../../config';
-import { CreateUserDto } from './dto/create-user.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
 import { UserResponseDto } from './dto/user-response.dto';
 import { User } from './schemas/user.schema';
 import { UsersRepository } from './users.repository';
 
+/** Normalized identity + profile used to provision an account (post OTP verify). */
+export interface CreateUserData {
+  dialCode: string;
+  phoneNumber: string;
+  firstName: string;
+  lastName: string;
+  email?: string;
+  defaultCurrency?: string;
+  isPhoneVerified?: boolean;
+}
+
 @Injectable()
 export class UsersService {
   private readonly logger = new Logger(UsersService.name);
-  private readonly saltRounds: number;
 
-  constructor(
-    private readonly usersRepository: UsersRepository,
-    private readonly configService: ConfigService<AppConfiguration, true>,
-  ) {
-    this.saltRounds = this.configService.get('security.bcryptSaltRounds', { infer: true });
-  }
-
-  async create(dto: CreateUserDto): Promise<UserResponseDto> {
-    const exists = await this.usersRepository.exists({ email: dto.email.toLowerCase() });
-    if (exists) {
-      throw new ConflictException('A user with this email already exists');
-    }
-
-    const passwordHash = await bcrypt.hash(dto.password, this.saltRounds);
-    const user = await this.usersRepository.create({
-      ...dto,
-      email: dto.email.toLowerCase(),
-      password: passwordHash,
-    });
-
-    this.logger.log(`User created: ${user._id.toString()}`);
-    return UserResponseDto.fromEntity(user);
-  }
+  constructor(private readonly usersRepository: UsersRepository) {}
 
   async findAll(query: PaginationQueryDto): Promise<PaginatedResponseDto<UserResponseDto>> {
     const filter: FilterQuery<User> = {};
     if (query.search) {
       const term = new RegExp(query.search, 'i');
-      filter.$or = [{ email: term }, { firstName: term }, { lastName: term }];
+      filter.$or = [
+        { phoneNumber: term },
+        { email: term },
+        { firstName: term },
+        { lastName: term },
+      ];
     }
 
     const result = await this.usersRepository.paginate({
@@ -66,6 +55,16 @@ export class UsersService {
   }
 
   async update(id: string, dto: UpdateUserDto): Promise<UserResponseDto> {
+    if (dto.email) {
+      const clash = await this.usersRepository.findOne({
+        email: dto.email.toLowerCase(),
+        _id: { $ne: id },
+      });
+      if (clash) {
+        throw new ConflictException('That email is already in use');
+      }
+    }
+
     const user = await this.usersRepository.updateById(id, dto);
     return UserResponseDto.fromEntity(user);
   }
@@ -78,25 +77,29 @@ export class UsersService {
   // Methods consumed by the Auth module (work with raw entities, not DTOs)
   // ---------------------------------------------------------------------------
 
-  /** Creates a user and returns the raw entity — used by the registration flow. */
-  async createFromRegistration(dto: CreateUserDto): Promise<User> {
-    const exists = await this.usersRepository.exists({ email: dto.email.toLowerCase() });
-    if (exists) {
-      throw new ConflictException('A user with this email already exists');
-    }
+  /** Creates a user from verified registration data and returns the raw entity. */
+  async createFromRegistration(data: CreateUserData): Promise<User> {
+    await this.assertPhoneAvailable(data.dialCode, data.phoneNumber);
 
-    const passwordHash = await bcrypt.hash(dto.password, this.saltRounds);
     const user = await this.usersRepository.create({
-      ...dto,
-      email: dto.email.toLowerCase(),
-      password: passwordHash,
+      dialCode: data.dialCode,
+      phoneNumber: data.phoneNumber,
+      firstName: data.firstName,
+      lastName: data.lastName,
+      email: data.email?.toLowerCase(),
+      defaultCurrency: data.defaultCurrency,
+      isPhoneVerified: data.isPhoneVerified ?? true,
     });
     this.logger.log(`User registered: ${user._id.toString()}`);
     return user;
   }
 
-  findByEmailWithSecrets(email: string): Promise<User | null> {
-    return this.usersRepository.findByEmail(email, true);
+  findByPhone(dialCode: string, phoneNumber: string): Promise<User | null> {
+    return this.usersRepository.findByPhone(dialCode, phoneNumber);
+  }
+
+  findByPhoneWithSecrets(dialCode: string, phoneNumber: string): Promise<User | null> {
+    return this.usersRepository.findByPhone(dialCode, phoneNumber, true);
   }
 
   /** Raw entity lookup used by the JWT strategy to confirm the user is still valid. */
@@ -117,5 +120,12 @@ export class UsersService {
 
   async updateLastLogin(userId: string): Promise<void> {
     await this.usersRepository.updateById(userId, { lastLoginAt: new Date() });
+  }
+
+  private async assertPhoneAvailable(dialCode: string, phoneNumber: string): Promise<void> {
+    const exists = await this.usersRepository.exists({ dialCode, phoneNumber });
+    if (exists) {
+      throw new ConflictException('An account with this phone number already exists');
+    }
   }
 }

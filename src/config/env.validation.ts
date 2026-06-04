@@ -23,6 +23,17 @@ export enum Environment {
 }
 
 /**
+ * SMS gateways the app knows how to wire. Only `console` (logs the OTP) is
+ * implemented today; the others are accepted so the env can be set ahead of
+ * the provider integration landing.
+ */
+export enum SmsProvider {
+  Console = 'console',
+  Twilio = 'twilio',
+  Msg91 = 'msg91',
+}
+
+/**
  * Parses common truthy string representations into a real boolean.
  * Needed because everything coming from `process.env` is a string.
  */
@@ -137,6 +148,61 @@ export class EnvironmentVariables {
   @Max(15)
   @IsOptional()
   BCRYPT_SALT_ROUNDS: number = 10;
+
+  // --- OTP / phone verification ---
+  @Type(() => Number)
+  @IsInt()
+  @Min(4)
+  @Max(8)
+  @IsOptional()
+  OTP_LENGTH: number = 6;
+
+  @Type(() => Number)
+  @IsInt()
+  @Min(30)
+  @IsOptional()
+  OTP_TTL_SECONDS: number = 300;
+
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @IsOptional()
+  OTP_MAX_ATTEMPTS: number = 5;
+
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  @IsOptional()
+  OTP_RESEND_COOLDOWN_SECONDS: number = 30;
+
+  // When true (default), all OTPs equal OTP_MOCK_CODE and are logged, not sent.
+  @Transform(toBoolean)
+  @IsBoolean()
+  @IsOptional()
+  OTP_MOCK_ENABLED: boolean = true;
+
+  @IsString()
+  @IsOptional()
+  OTP_MOCK_CODE: string = '123456';
+
+  // --- SMS gateway ---
+  @IsEnum(SmsProvider)
+  @IsOptional()
+  SMS_PROVIDER: SmsProvider = SmsProvider.Console;
+
+  @IsString()
+  @IsOptional()
+  SMS_FROM: string = 'Spendes';
+
+  // --- Phone numbering ---
+  @IsString()
+  @IsOptional()
+  PHONE_DEFAULT_DIAL_CODE: string = '+91';
+
+  // Comma-separated dial codes accepted at login/register, or `*` for any.
+  @IsString()
+  @IsOptional()
+  PHONE_ALLOWED_DIAL_CODES: string = '+91';
 
   // --- Rate limiting ---
   @Type(() => Number)

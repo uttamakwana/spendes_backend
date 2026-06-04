@@ -13,13 +13,17 @@ export class UsersRepository extends AbstractRepository<User> {
   }
 
   /**
-   * Finds a user by email. Password and refresh-token hashes are excluded unless
-   * `withSecrets` is true (used by the authentication flow).
+   * Finds a user by their (dialCode, phoneNumber) identity. The refresh-token
+   * hash is excluded unless `withSecrets` is true (used by the auth flow).
    */
-  async findByEmail(email: string, withSecrets = false): Promise<User | null> {
-    const query = this.model.findOne({ email: email.toLowerCase() });
+  async findByPhone(
+    dialCode: string,
+    phoneNumber: string,
+    withSecrets = false,
+  ): Promise<User | null> {
+    const query = this.model.findOne({ dialCode, phoneNumber });
     if (withSecrets) {
-      query.select('+password +refreshTokenHash');
+      query.select('+refreshTokenHash');
     }
     return query.lean<User>(true).exec();
   }

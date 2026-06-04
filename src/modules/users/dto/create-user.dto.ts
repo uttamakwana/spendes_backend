@@ -1,34 +1,13 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import {
-  IsEmail,
-  IsOptional,
-  IsString,
-  Length,
-  Matches,
-  MaxLength,
-  MinLength,
-} from 'class-validator';
+import { IsEmail, IsOptional, IsString, Length, MaxLength } from 'class-validator';
+import { PhoneNumberDto } from '../../../common/dto/phone-number.dto';
 
-export class CreateUserDto {
-  @ApiProperty({ example: 'jane.doe@example.com' })
-  @IsEmail()
-  email: string;
-
-  @ApiProperty({
-    example: 'P@ssw0rd123',
-    minLength: 8,
-    maxLength: 64,
-    description: 'At least one lowercase letter, one uppercase letter and one digit',
-  })
-  @IsString()
-  @MinLength(8)
-  @MaxLength(64)
-  @Matches(/(?=.*[a-z])(?=.*[A-Z])(?=.*\d)/, {
-    message:
-      'password must contain at least one lowercase letter, one uppercase letter and one digit',
-  })
-  password: string;
-
+/**
+ * Profile data captured when an account is first created (after OTP verification).
+ * Inherits `dialCode` + `phoneNumber` from {@link PhoneNumberDto}. There is no
+ * password — authentication is OTP-based.
+ */
+export class CreateUserDto extends PhoneNumberDto {
   @ApiProperty({ example: 'Jane' })
   @IsString()
   @MaxLength(50)
@@ -39,11 +18,10 @@ export class CreateUserDto {
   @MaxLength(50)
   lastName: string;
 
-  @ApiPropertyOptional({ example: '+919876543210' })
+  @ApiPropertyOptional({ example: 'jane.doe@example.com' })
   @IsOptional()
-  @IsString()
-  @MaxLength(20)
-  phoneNumber?: string;
+  @IsEmail()
+  email?: string;
 
   @ApiPropertyOptional({ example: 'INR', default: 'INR', minLength: 3, maxLength: 3 })
   @IsOptional()

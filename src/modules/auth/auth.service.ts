@@ -1,16 +1,18 @@
-import { Injectable, Logger, UnauthorizedException } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException, UnauthorizedException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { JwtService, JwtSignOptions } from '@nestjs/jwt';
-import * as bcrypt from 'bcryptjs';
 import { createHash, timingSafeEqual } from 'crypto';
 import { AppConfiguration } from '../../config';
 import { UserResponseDto } from '../users/dto/user-response.dto';
 import { User } from '../users/schemas/user.schema';
 import { UsersService } from '../users/users.service';
-import { AuthResponseDto, AuthTokensDto } from './dto/auth-response.dto';
+import { AuthResponseDto, AuthTokensDto, OtpRequestResponseDto } from './dto/auth-response.dto';
 import { LoginDto } from './dto/login.dto';
 import { RegisterDto } from './dto/register.dto';
+import { RequestOtpDto } from './dto/request-otp.dto';
 import { JwtPayload } from './interfaces/jwt-payload.interface';
+import { OtpService } from './otp/otp.service';
+import { PhoneService } from './phone/phone.service';
 
 @Injectable()
 export class AuthService {
@@ -20,27 +22,62 @@ export class AuthService {
     private readonly usersService: UsersService,
     private readonly jwtService: JwtService,
     private readonly configService: ConfigService<AppConfiguration, true>,
+    private readonly phoneService: PhoneService,
+    private readonly otpService: OtpService,
   ) {}
 
+  /**
+   * Sends a one-time code to the phone. Works for both new and returning users;
+   * `isRegistered` lets the client route to the register or login screen.
+   */
+  async requestOtp(dto: RequestOtpDto): Promise<OtpRequestResponseDto> {
+    const phone = this.phoneService.normalize(dto);
+    const existing = await this.usersService.findByPhone(phone.dialCode, phone.phoneNumber);
+    const result = await this.otpService.request(phone);
+
+    return {
+      isRegistered: existing !== null,
+      expiresInSeconds: result.expiresInSeconds,
+      mocked: result.mocked,
+    };
+  }
+
+  /** Verifies the OTP and provisions a brand-new account. */
   async register(dto: RegisterDto): Promise<AuthResponseDto> {
-    const user = await this.usersService.createFromRegistration(dto);
+    const phone = this.phoneService.normalize(dto);
+    await this.otpService.verify(phone, dto.otp);
+
+    const user = await this.usersService.createFromRegistration({
+      dialCode: phone.dialCode,
+      phoneNumber: phone.phoneNumber,
+      firstName: dto.firstName,
+      lastName: dto.lastName,
+      email: dto.email,
+      defaultCurrency: dto.defaultCurrency,
+      isPhoneVerified: true,
+    });
+
     return this.buildAuthResponse(user);
   }
 
+  /** Verifies the OTP for an existing account and issues a token pair. */
   async login(dto: LoginDto): Promise<AuthResponseDto> {
-    const user = await this.usersService.findByEmailWithSecrets(dto.email);
+    const phone = this.phoneService.normalize(dto);
 
-    // Run the comparison even when the user is missing to avoid timing-based
-    // user enumeration, then fail with a single generic message.
-    const passwordValid = user ? await bcrypt.compare(dto.password, user.password) : false;
-    if (!user || !passwordValid) {
-      throw new UnauthorizedException('Invalid credentials');
+    const user = await this.usersService.findByPhoneWithSecrets(phone.dialCode, phone.phoneNumber);
+    if (!user) {
+      throw new NotFoundException('No account found for this number. Please register first.');
     }
     if (!user.isActive) {
       throw new UnauthorizedException('Account is deactivated');
     }
 
+    await this.otpService.verify(phone, dto.otp);
+
     await this.usersService.updateLastLogin(user._id.toString());
+    // Reflect the just-written login time in the response (entity was loaded before).
+    user.lastLoginAt = new Date();
+
     return this.buildAuthResponse(user);
   }
 
@@ -87,7 +124,6 @@ export class AuthService {
   private async issueTokens(user: User): Promise<AuthTokensDto> {
     const payload: JwtPayload = {
       sub: user._id.toString(),
-      email: user.email,
       roles: user.roles,
     };
 

@@ -9,10 +9,11 @@ import {
 import { Throttle } from '@nestjs/throttler';
 import { CurrentUser, Public, ResponseMessage } from '../../common';
 import { AuthService } from './auth.service';
-import { AuthResponseDto, AuthTokensDto } from './dto/auth-response.dto';
+import { AuthResponseDto, AuthTokensDto, OtpRequestResponseDto } from './dto/auth-response.dto';
 import { LoginDto } from './dto/login.dto';
 import { RefreshTokenDto } from './dto/refresh-token.dto';
 import { RegisterDto } from './dto/register.dto';
+import { RequestOtpDto } from './dto/request-otp.dto';
 
 @ApiTags('Auth')
 @Controller('auth')
@@ -20,8 +21,20 @@ export class AuthController {
   constructor(private readonly authService: AuthService) {}
 
   @Public()
+  @Post('otp/request')
+  @HttpCode(HttpStatus.OK)
+  @Throttle({ default: { limit: 3, ttl: 60_000 } })
+  @ApiOperation({ summary: 'Send a one-time login/registration code to a phone number' })
+  @ApiOkResponse({ type: OtpRequestResponseDto })
+  @ResponseMessage('Verification code sent')
+  requestOtp(@Body() dto: RequestOtpDto): Promise<OtpRequestResponseDto> {
+    return this.authService.requestOtp(dto);
+  }
+
+  @Public()
   @Post('register')
-  @ApiOperation({ summary: 'Register a new account and receive tokens' })
+  @Throttle({ default: { limit: 5, ttl: 60_000 } })
+  @ApiOperation({ summary: 'Verify the OTP and create a new account' })
   @ApiCreatedResponse({ type: AuthResponseDto })
   @ResponseMessage('Registration successful')
   register(@Body() dto: RegisterDto): Promise<AuthResponseDto> {
@@ -32,7 +45,7 @@ export class AuthController {
   @Post('login')
   @HttpCode(HttpStatus.OK)
   @Throttle({ default: { limit: 5, ttl: 60_000 } })
-  @ApiOperation({ summary: 'Authenticate with email and password' })
+  @ApiOperation({ summary: 'Verify the OTP for an existing account and receive tokens' })
   @ApiOkResponse({ type: AuthResponseDto })
   @ResponseMessage('Login successful')
   login(@Body() dto: LoginDto): Promise<AuthResponseDto> {

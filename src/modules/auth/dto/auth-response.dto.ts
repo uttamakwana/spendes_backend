@@ -22,3 +22,21 @@ export class AuthResponseDto {
   @ApiProperty({ type: () => AuthTokensDto })
   tokens: AuthTokensDto;
 }
+
+/** Response to a successful OTP request — no code is ever returned over the wire. */
+export class OtpRequestResponseDto {
+  @ApiProperty({
+    description: 'Whether this phone already has an account (route to login vs register).',
+    example: false,
+  })
+  isRegistered: boolean;
+
+  @ApiProperty({ description: 'Seconds until the issued code expires', example: 300 })
+  expiresInSeconds: number;
+
+  @ApiProperty({
+    description: 'True in dev when the code is mocked (fixed 123456) rather than sent.',
+    example: true,
+  })
+  mocked: boolean;
+}
