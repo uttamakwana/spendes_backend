@@ -1,0 +1,67 @@
+name: spendes
+
+services:
+  api:
+    build:
+      context: .
+      target: production
+    container_name: spendes-api
+    restart: unless-stopped
+    ports:
+      - '${PORT:-3000}:3000'
+    env_file:
+      - .env
+    environment:
+      NODE_ENV: production
+      MONGODB_URI: mongodb://mongo:27017/spendes
+      REDIS_ENABLED: 'true'
+      REDIS_HOST: redis
+      REDIS_PORT: '6379'
+    depends_on:
+      mongo:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - spendes
+
+  mongo:
+    image: mongo:7
+    container_name: spendes-mongo
+    restart: unless-stopped
+    ports:
+      - '27017:27017'
+    volumes:
+      - mongo-data:/data/db
+    healthcheck:
+      test: ['CMD', 'mongosh', '--quiet', '--eval', "db.adminCommand('ping')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - spendes
+
+  redis:
+    image: redis:7-alpine
+    container_name: spendes-redis
+    restart: unless-stopped
+    command: ['redis-server', '--appendonly', 'yes']
+    ports:
+      - '6379:6379'
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - spendes
+
+volumes:
+  mongo-data:
+  redis-data:
+
+networks:
+  spendes:
+    driver: bridge
