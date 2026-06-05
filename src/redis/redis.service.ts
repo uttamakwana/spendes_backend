@@ -1,18 +1,17 @@
-import { Inject, Injectable, Logger, OnModuleDestroy } from '@nestjs/common';
 import type { Redis } from 'ioredis';
-import { REDIS_CLIENT } from './redis.constants';
+import { createLogger } from '../logger';
+import { createRedisClient } from './redis.client';
 
 /**
  * Thin, typed wrapper around the ioredis client with JSON helpers.
- * When Redis is disabled (`REDIS_ENABLED=false`) the injected client is null and
- * any data operation throws a clear error — guard with {@link isEnabled} first,
- * or simply leave Redis off until the caching layer is introduced.
+ * When Redis is disabled (`REDIS_ENABLED=false`) the underlying client is null and
+ * any data operation throws a clear error — guard with {@link isEnabled} first, or
+ * simply leave Redis off until the caching layer is introduced.
  */
-@Injectable()
-export class RedisService implements OnModuleDestroy {
-  private readonly logger = new Logger(RedisService.name);
+export class RedisService {
+  private readonly logger = createLogger('RedisService');
 
-  constructor(@Inject(REDIS_CLIENT) private readonly redis: Redis | null) {}
+  constructor(private readonly redis: Redis | null) {}
 
   get isEnabled(): boolean {
     return this.redis !== null;
@@ -75,10 +74,13 @@ export class RedisService implements OnModuleDestroy {
     return this.client.ping();
   }
 
-  async onModuleDestroy(): Promise<void> {
+  /** Closes the connection (used on graceful shutdown). No-op when disabled. */
+  async close(): Promise<void> {
     if (this.redis) {
       await this.redis.quit();
-      this.logger.log('Redis connection closed');
+      this.logger.info('Redis connection closed');
     }
   }
 }
+
+export const redisService = new RedisService(createRedisClient());

@@ -1,33 +1,20 @@
-import { INestApplication, VersioningType } from '@nestjs/common';
-import { Test, TestingModule } from '@nestjs/testing';
+import type { Express } from 'express';
 import request from 'supertest';
-import { AppModule } from '../src/app.module';
+import { createApp } from '../src/app';
 
 /**
- * End-to-end smoke test. Boots the full application, so it requires a running
- * MongoDB (configured via the test environment, e.g. MONGODB_URI). The CI
- * workflow provisions one as a service container.
+ * End-to-end smoke test. Boots the Express app in-process (no network listen) and
+ * exercises routes that do not require a database connection.
  */
 describe('App (e2e)', () => {
-  let app: INestApplication;
+  let app: Express;
 
-  beforeAll(async () => {
-    const moduleRef: TestingModule = await Test.createTestingModule({
-      imports: [AppModule],
-    }).compile();
-
-    app = moduleRef.createNestApplication();
-    app.setGlobalPrefix('api');
-    app.enableVersioning({ type: VersioningType.URI, defaultVersion: '1' });
-    await app.init();
-  });
-
-  afterAll(async () => {
-    await app.close();
+  beforeAll(() => {
+    app = createApp();
   });
 
   it('GET /api/v1 returns the standard success envelope with API metadata', () => {
-    return request(app.getHttpServer())
+    return request(app)
       .get('/api/v1')
       .expect(200)
       .expect((res) => {
@@ -37,6 +24,11 @@ describe('App (e2e)', () => {
   });
 
   it('GET /api/v1/users/me without a token returns 401', () => {
-    return request(app.getHttpServer()).get('/api/v1/users/me').expect(401);
+    return request(app)
+      .get('/api/v1/users/me')
+      .expect(401)
+      .expect((res) => {
+        expect(res.body.success).toBe(false);
+      });
   });
 });

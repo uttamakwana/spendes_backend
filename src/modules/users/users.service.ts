@@ -1,11 +1,13 @@
-import { ConflictException, Injectable, Logger } from '@nestjs/common';
-import { FilterQuery, UpdateQuery } from 'mongoose';
-import { PaginationQueryDto } from '../../common/dto/pagination-query.dto';
-import { PaginatedResponseDto } from '../../common/dto/pagination-response.dto';
-import { UpdateUserDto } from './dto/update-user.dto';
-import { UserResponseDto } from './dto/user-response.dto';
-import { User } from './schemas/user.schema';
-import { UsersRepository } from './users.repository';
+import type { FilterQuery, UpdateQuery } from 'mongoose';
+import { ConflictException } from '../../common/errors/http-exception';
+import { buildSort, type PaginationQuery } from '../../common/utils/pagination';
+import { paginate } from '../../common/utils/response';
+import type { PaginatedData } from '../../common/types/api-response';
+import { createLogger } from '../../logger';
+import { toUserResponse, type UserResponse } from './user-response';
+import type { UserDocument } from './users.model';
+import type { UpdateUserInput } from './users.validation';
+import { usersRepository, UsersRepository } from './users.repository';
 
 /** Normalized identity + profile used to provision an account (post OTP verify). */
 export interface CreateUserData {
@@ -18,14 +20,13 @@ export interface CreateUserData {
   isPhoneVerified?: boolean;
 }
 
-@Injectable()
 export class UsersService {
-  private readonly logger = new Logger(UsersService.name);
+  private readonly logger = createLogger('UsersService');
 
-  constructor(private readonly usersRepository: UsersRepository) {}
+  constructor(private readonly repository: UsersRepository) {}
 
-  async findAll(query: PaginationQueryDto): Promise<PaginatedResponseDto<UserResponseDto>> {
-    const filter: FilterQuery<User> = {};
+  async findAll(query: PaginationQuery): Promise<PaginatedData<UserResponse>> {
+    const filter: FilterQuery<UserDocument> = {};
     if (query.search) {
       const term = new RegExp(query.search, 'i');
       filter.$or = [
@@ -36,27 +37,28 @@ export class UsersService {
       ];
     }
 
-    const result = await this.usersRepository.paginate({
+    const result = await this.repository.paginate({
       filter,
       page: query.page,
       limit: query.limit,
-      sort: query.sort ?? { createdAt: -1 },
+      sort: buildSort(query) ?? { createdAt: -1 },
     });
 
-    return PaginatedResponseDto.of(
-      result.items.map((user) => UserResponseDto.fromEntity(user)),
-      { page: result.page, limit: result.limit, totalItems: result.totalItems },
-    );
+    return paginate(result.items.map(toUserResponse), {
+      page: result.page,
+      limit: result.limit,
+      totalItems: result.totalItems,
+    });
   }
 
-  async findById(id: string): Promise<UserResponseDto> {
-    const user = await this.usersRepository.findByIdOrThrow(id);
-    return UserResponseDto.fromEntity(user);
+  async findById(id: string): Promise<UserResponse> {
+    const user = await this.repository.findByIdOrThrow(id);
+    return toUserResponse(user);
   }
 
-  async update(id: string, dto: UpdateUserDto): Promise<UserResponseDto> {
+  async update(id: string, dto: UpdateUserInput): Promise<UserResponse> {
     if (dto.email) {
-      const clash = await this.usersRepository.findOne({
+      const clash = await this.repository.findOne({
         email: dto.email.toLowerCase(),
         _id: { $ne: id },
       });
@@ -65,23 +67,23 @@ export class UsersService {
       }
     }
 
-    const user = await this.usersRepository.updateById(id, dto);
-    return UserResponseDto.fromEntity(user);
+    const user = await this.repository.updateById(id, dto);
+    return toUserResponse(user);
   }
 
   async remove(id: string): Promise<void> {
-    await this.usersRepository.deleteById(id);
+    await this.repository.deleteById(id);
   }
 
   // ---------------------------------------------------------------------------
-  // Methods consumed by the Auth module (work with raw entities, not DTOs)
+  // Methods consumed by the Auth module (work with raw entities, not responses)
   // ---------------------------------------------------------------------------
 
   /** Creates a user from verified registration data and returns the raw entity. */
-  async createFromRegistration(data: CreateUserData): Promise<User> {
+  async createFromRegistration(data: CreateUserData): Promise<UserDocument> {
     await this.assertPhoneAvailable(data.dialCode, data.phoneNumber);
 
-    const user = await this.usersRepository.create({
+    const user = await this.repository.create({
       dialCode: data.dialCode,
       phoneNumber: data.phoneNumber,
       firstName: data.firstName,
@@ -90,42 +92,45 @@ export class UsersService {
       defaultCurrency: data.defaultCurrency,
       isPhoneVerified: data.isPhoneVerified ?? true,
     });
-    this.logger.log(`User registered: ${user._id.toString()}`);
+    this.logger.info(`User registered: ${user._id.toString()}`);
     return user;
   }
 
-  findByPhone(dialCode: string, phoneNumber: string): Promise<User | null> {
-    return this.usersRepository.findByPhone(dialCode, phoneNumber);
+  findByPhone(dialCode: string, phoneNumber: string): Promise<UserDocument | null> {
+    return this.repository.findByPhone(dialCode, phoneNumber);
   }
 
-  findByPhoneWithSecrets(dialCode: string, phoneNumber: string): Promise<User | null> {
-    return this.usersRepository.findByPhone(dialCode, phoneNumber, true);
+  findByPhoneWithSecrets(dialCode: string, phoneNumber: string): Promise<UserDocument | null> {
+    return this.repository.findByPhone(dialCode, phoneNumber, true);
   }
 
-  /** Raw entity lookup used by the JWT strategy to confirm the user is still valid. */
-  findEntityById(id: string): Promise<User | null> {
-    return this.usersRepository.findById(id);
+  /** Raw entity lookup used by the auth middleware to confirm the user is still valid. */
+  findEntityById(id: string): Promise<UserDocument | null> {
+    return this.repository.findById(id);
   }
 
-  findByIdWithRefreshToken(id: string): Promise<User | null> {
-    return this.usersRepository.findByIdWithRefreshToken(id);
+  findByIdWithRefreshToken(id: string): Promise<UserDocument | null> {
+    return this.repository.findByIdWithRefreshToken(id);
   }
 
   async setRefreshTokenHash(userId: string, hash: string | null): Promise<void> {
-    const update: UpdateQuery<User> = hash
+    const update: UpdateQuery<UserDocument> = hash
       ? { refreshTokenHash: hash }
       : { $unset: { refreshTokenHash: 1 } };
-    await this.usersRepository.updateById(userId, update);
+    await this.repository.updateById(userId, update);
   }
 
   async updateLastLogin(userId: string): Promise<void> {
-    await this.usersRepository.updateById(userId, { lastLoginAt: new Date() });
+    await this.repository.updateById(userId, { lastLoginAt: new Date() });
   }
 
   private async assertPhoneAvailable(dialCode: string, phoneNumber: string): Promise<void> {
-    const exists = await this.usersRepository.exists({ dialCode, phoneNumber });
+    const exists = await this.repository.exists({ dialCode, phoneNumber });
     if (exists) {
       throw new ConflictException('An account with this phone number already exists');
     }
   }
 }
+
+/** Shared singleton instance used across the app. */
+export const usersService = new UsersService(usersRepository);

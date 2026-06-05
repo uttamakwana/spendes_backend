@@ -1,39 +1,53 @@
-import { Injectable, Logger, NotFoundException, UnauthorizedException } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
-import { JwtService, JwtSignOptions } from '@nestjs/jwt';
 import { createHash, timingSafeEqual } from 'crypto';
-import { AppConfiguration } from '../../config';
-import { UserResponseDto } from '../users/dto/user-response.dto';
-import { User } from '../users/schemas/user.schema';
-import { UsersService } from '../users/users.service';
-import { AuthResponseDto, AuthTokensDto, OtpRequestResponseDto } from './dto/auth-response.dto';
-import { LoginDto } from './dto/login.dto';
-import { RegisterDto } from './dto/register.dto';
-import { RequestOtpDto } from './dto/request-otp.dto';
-import { JwtPayload } from './interfaces/jwt-payload.interface';
-import { OtpService } from './otp/otp.service';
-import { PhoneService } from './phone/phone.service';
+import { config } from '../../config';
+import { NotFoundException, UnauthorizedException } from '../../common/errors/http-exception';
+import { createLogger } from '../../logger';
+import { toUserResponse, type UserResponse } from '../users/user-response';
+import type { UserDocument } from '../users/users.model';
+import { usersService, UsersService } from '../users/users.service';
+import { jwtService, JwtService, type JwtPayload } from './jwt.service';
+import { otpService, OtpService } from './otp/otp.service';
+import { phoneService, PhoneService } from './phone/phone.service';
+import type { LoginInput, RegisterInput, RequestOtpInput } from './auth.validation';
 
-@Injectable()
+export interface AuthTokens {
+  accessToken: string;
+  refreshToken: string;
+  tokenType: 'Bearer';
+  /** Access token lifetime in seconds. */
+  expiresIn: number;
+}
+
+export interface AuthResponse {
+  user: UserResponse;
+  tokens: AuthTokens;
+}
+
+/** Response to a successful OTP request — no code is ever returned over the wire. */
+export interface OtpRequestResponse {
+  isRegistered: boolean;
+  expiresInSeconds: number;
+  mocked: boolean;
+}
+
 export class AuthService {
-  private readonly logger = new Logger(AuthService.name);
+  private readonly logger = createLogger('AuthService');
 
   constructor(
-    private readonly usersService: UsersService,
-    private readonly jwtService: JwtService,
-    private readonly configService: ConfigService<AppConfiguration, true>,
-    private readonly phoneService: PhoneService,
-    private readonly otpService: OtpService,
+    private readonly users: UsersService,
+    private readonly jwt: JwtService,
+    private readonly phone: PhoneService,
+    private readonly otp: OtpService,
   ) {}
 
   /**
    * Sends a one-time code to the phone. Works for both new and returning users;
    * `isRegistered` lets the client route to the register or login screen.
    */
-  async requestOtp(dto: RequestOtpDto): Promise<OtpRequestResponseDto> {
-    const phone = this.phoneService.normalize(dto);
-    const existing = await this.usersService.findByPhone(phone.dialCode, phone.phoneNumber);
-    const result = await this.otpService.request(phone);
+  async requestOtp(dto: RequestOtpInput): Promise<OtpRequestResponse> {
+    const phone = this.phone.normalize(dto);
+    const existing = await this.users.findByPhone(phone.dialCode, phone.phoneNumber);
+    const result = await this.otp.request(phone);
 
     return {
       isRegistered: existing !== null,
@@ -43,11 +57,11 @@ export class AuthService {
   }
 
   /** Verifies the OTP and provisions a brand-new account. */
-  async register(dto: RegisterDto): Promise<AuthResponseDto> {
-    const phone = this.phoneService.normalize(dto);
-    await this.otpService.verify(phone, dto.otp);
+  async register(dto: RegisterInput): Promise<AuthResponse> {
+    const phone = this.phone.normalize(dto);
+    await this.otp.verify(phone, dto.otp);
 
-    const user = await this.usersService.createFromRegistration({
+    const user = await this.users.createFromRegistration({
       dialCode: phone.dialCode,
       phoneNumber: phone.phoneNumber,
       firstName: dto.firstName,
@@ -61,10 +75,10 @@ export class AuthService {
   }
 
   /** Verifies the OTP for an existing account and issues a token pair. */
-  async login(dto: LoginDto): Promise<AuthResponseDto> {
-    const phone = this.phoneService.normalize(dto);
+  async login(dto: LoginInput): Promise<AuthResponse> {
+    const phone = this.phone.normalize(dto);
 
-    const user = await this.usersService.findByPhoneWithSecrets(phone.dialCode, phone.phoneNumber);
+    const user = await this.users.findByPhoneWithSecrets(phone.dialCode, phone.phoneNumber);
     if (!user) {
       throw new NotFoundException('No account found for this number. Please register first.');
     }
@@ -72,78 +86,60 @@ export class AuthService {
       throw new UnauthorizedException('Account is deactivated');
     }
 
-    await this.otpService.verify(phone, dto.otp);
+    await this.otp.verify(phone, dto.otp);
 
-    await this.usersService.updateLastLogin(user._id.toString());
+    await this.users.updateLastLogin(user._id.toString());
     // Reflect the just-written login time in the response (entity was loaded before).
     user.lastLoginAt = new Date();
 
     return this.buildAuthResponse(user);
   }
 
-  async refreshTokens(refreshToken: string): Promise<AuthTokensDto> {
-    const payload = await this.verifyRefreshToken(refreshToken);
+  async refreshTokens(refreshToken: string): Promise<AuthTokens> {
+    const payload = this.verifyRefreshToken(refreshToken);
 
-    const user = await this.usersService.findByIdWithRefreshToken(payload.sub);
+    const user = await this.users.findByIdWithRefreshToken(payload.sub);
     if (!user || !user.refreshTokenHash) {
       throw new UnauthorizedException('Access denied');
     }
 
     if (!this.tokenMatchesHash(refreshToken, user.refreshTokenHash)) {
       // Token reuse / mismatch — revoke the stored token defensively.
-      await this.usersService.setRefreshTokenHash(user._id.toString(), null);
+      await this.users.setRefreshTokenHash(user._id.toString(), null);
       throw new UnauthorizedException('Access denied');
     }
 
-    const tokens = await this.issueTokens(user);
-    await this.usersService.setRefreshTokenHash(
-      user._id.toString(),
-      this.hashToken(tokens.refreshToken),
-    );
+    const tokens = this.issueTokens(user);
+    await this.users.setRefreshTokenHash(user._id.toString(), this.hashToken(tokens.refreshToken));
     return tokens;
   }
 
   async logout(userId: string): Promise<void> {
-    await this.usersService.setRefreshTokenHash(userId, null);
-    this.logger.log(`User logged out: ${userId}`);
+    await this.users.setRefreshTokenHash(userId, null);
+    this.logger.info(`User logged out: ${userId}`);
   }
 
   // ---------------------------------------------------------------------------
   // Internals
   // ---------------------------------------------------------------------------
 
-  private async buildAuthResponse(user: User): Promise<AuthResponseDto> {
-    const tokens = await this.issueTokens(user);
-    await this.usersService.setRefreshTokenHash(
-      user._id.toString(),
-      this.hashToken(tokens.refreshToken),
-    );
-    return { user: UserResponseDto.fromEntity(user), tokens };
+  private async buildAuthResponse(user: UserDocument): Promise<AuthResponse> {
+    const tokens = this.issueTokens(user);
+    await this.users.setRefreshTokenHash(user._id.toString(), this.hashToken(tokens.refreshToken));
+    return { user: toUserResponse(user), tokens };
   }
 
-  private async issueTokens(user: User): Promise<AuthTokensDto> {
+  private issueTokens(user: UserDocument): AuthTokens {
     const payload: JwtPayload = {
       sub: user._id.toString(),
       roles: user.roles,
     };
 
-    const accessConfig = this.configService.get('jwt.access', { infer: true });
-    const refreshConfig = this.configService.get('jwt.refresh', { infer: true });
+    const accessConfig = config.jwt.access;
+    const refreshConfig = config.jwt.refresh;
 
-    // `expiresIn` is typed as the `ms` template-literal union; our config holds a
-    // plain string (validated separately), so assert to the option's own type.
-    type ExpiresIn = JwtSignOptions['expiresIn'];
-
-    const [accessToken, refreshToken] = await Promise.all([
-      this.jwtService.signAsync(payload, {
-        secret: accessConfig.secret,
-        expiresIn: accessConfig.expiresIn as ExpiresIn,
-      }),
-      this.jwtService.signAsync(payload, {
-        secret: refreshConfig.secret,
-        expiresIn: refreshConfig.expiresIn as ExpiresIn,
-      }),
-    ]);
+    const accessToken = this.jwt.sign(payload, accessConfig.secret, accessConfig.expiresIn);
+    const refreshToken = this.jwt.sign(payload, refreshConfig.secret, refreshConfig.expiresIn);
 
     return {
       accessToken,
@@ -153,11 +149,9 @@ export class AuthService {
     };
   }
 
-  private async verifyRefreshToken(token: string): Promise<JwtPayload> {
+  private verifyRefreshToken(token: string): JwtPayload {
     try {
-      return await this.jwtService.verifyAsync<JwtPayload>(token, {
-        secret: this.configService.get('jwt.refresh.secret', { infer: true }),
-      });
+      return this.jwt.verify(token, config.jwt.refresh.secret);
     } catch {
       throw new UnauthorizedException('Invalid or expired refresh token');
     }
@@ -186,3 +180,5 @@ export class AuthService {
     return unit ? value * multipliers[unit] : value;
   }
 }
+
+export const authService = new AuthService(usersService, jwtService, phoneService, otpService);

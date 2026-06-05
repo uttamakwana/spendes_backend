@@ -1,10 +1,10 @@
 # Spendes — Backend API
 
-Production-grade [NestJS](https://nestjs.com/) backend for **Spendes**, a personal-finance
+Production-grade **Express.js + TypeScript** backend for **Spendes**, a personal-finance
 platform for tracking and **splitting** expenses, budgeting, setting goals, and
 analysing income vs. spending so users can plan each month with confidence.
 
-Built with **NestJS 11 · MongoDB (Mongoose) · Redis-ready · JWT auth · Swagger · Pino**.
+Built with **Express 5 · TypeScript (strict) · MongoDB (Mongoose) · Zod · JWT auth · Swagger · Pino**.
 
 ---
 
@@ -18,6 +18,7 @@ Built with **NestJS 11 · MongoDB (Mongoose) · Redis-ready · JWT auth · Swagg
 - [Available scripts](#available-scripts)
 - [Conventions & patterns](#conventions--patterns)
 - [API response shape](#api-response-shape)
+- [Authentication flow](#authentication-flow)
 - [Adding a new feature module](#adding-a-new-feature-module)
 - [Domain roadmap](#domain-roadmap)
 
@@ -25,48 +26,56 @@ Built with **NestJS 11 · MongoDB (Mongoose) · Redis-ready · JWT auth · Swagg
 
 ## Tech stack
 
-| Concern             | Choice                                                        |
-| ------------------- | ------------------------------------------------------------- |
-| Framework           | NestJS 11 (Express)                                           |
-| Language            | TypeScript (strict)                                           |
-| Database            | MongoDB via Mongoose (`@nestjs/mongoose`)                     |
-| Cache / sessions    | Redis via `ioredis` (optional, feature-flagged)              |
-| Auth                | JWT access + refresh tokens (`passport-jwt`), RBAC guards     |
-| Validation          | `class-validator` + `class-transformer` (global pipe)         |
-| Config              | `@nestjs/config` with fail-fast env validation                |
-| Logging             | `nestjs-pino` (structured, request-scoped, redacted)          |
-| API docs            | OpenAPI / Swagger (`@nestjs/swagger`)                         |
-| Rate limiting       | `@nestjs/throttler`                                           |
-| Security            | `helmet`, CORS, `compression`                                 |
-| Health checks       | `@nestjs/terminus`                                            |
-| Tooling             | ESLint 9 (flat) · Prettier · Husky · lint-staged · commitlint |
+| Concern          | Choice                                                        |
+| ---------------- | ------------------------------------------------------------ |
+| Framework        | Express 5                                                    |
+| Language         | TypeScript (strict)                                          |
+| Database         | MongoDB via Mongoose                                         |
+| Cache / sessions | Redis via `ioredis` (optional, feature-flagged)             |
+| Auth             | JWT access + refresh tokens (`jsonwebtoken`), role-based     |
+| Validation       | `zod` (one schema → validation + types + OpenAPI)           |
+| Config           | `zod`-validated env (fail-fast), typed config tree           |
+| Logging          | `pino` + `pino-http` (structured, request-scoped, redacted)  |
+| API docs         | OpenAPI / Swagger UI (`swagger-ui-express`, from Zod)        |
+| Rate limiting    | `express-rate-limit`                                         |
+| Security         | `helmet`, CORS, `compression`                                |
+| Tooling          | ESLint 9 (flat) · Prettier · Husky · lint-staged · commitlint|
+
+> Migrated from NestJS to plain Express while keeping the same layered design,
+> auth model, and API contract.
 
 ---
 
 ## Architecture
 
-A layered, modular architecture with a clear separation of concerns:
+A layered, modular architecture with a clear separation of concerns. Each request
+flows through explicit Express middleware instead of framework "magic":
 
 ```
-Controller  →  Service  →  Repository  →  Mongoose Model
-  (HTTP)       (business)   (data access)   (persistence)
+request
+  → requestId            (correlation id, echoed as x-request-id)
+  → requestLogger        (pino-http, secrets redacted)
+  → helmet / cors / compression
+  → body parsers
+  → timeout              (408 on hung requests)
+  → rate limiter         (429 on abuse)
+  → route: validate(zod) → authenticate → authorize(role) → controller
+                                                              → service
+                                                              → repository → Mongoose model
+  → notFoundHandler      (404 envelope for unknown routes)
+  → errorHandler         (single error envelope for everything thrown)
 ```
 
-- **Controllers** handle HTTP only — routing, validation, serialization. No business logic.
-- **Services** own business rules and orchestration. They speak DTOs, not raw documents.
-- **Repositories** extend a generic `AbstractRepository` for consistent, typed CRUD + pagination.
-- **Cross-cutting concerns** (auth, validation, error handling, response shaping, logging,
-  rate limiting) are applied **globally** via guards, pipes, filters and interceptors — so
-  feature code stays focused on the domain.
+**Layers inside a feature module**
 
-Global wiring lives in [`src/app.module.ts`](src/app.module.ts):
-
-- `APP_PIPE` → `ValidationPipe` (whitelist, transform, reject unknown fields)
-- `APP_GUARD` → `ThrottlerGuard` → `JwtAuthGuard` → `RolesGuard`
-- `APP_FILTER` → `AllExceptionsFilter` (single error envelope)
-- `APP_INTERCEPTOR` → `TransformInterceptor` (single success envelope) → `TimeoutInterceptor`
-
-Authentication is **on by default**; opt routes out with `@Public()`.
+- **routes** — wire URL + middleware (validation, auth, rate limit) to a controller.
+- **controller** — thin HTTP adapter: read the (already-validated) request, call a
+  service, write the success envelope. No business logic.
+- **service** — business logic. Returns plain response objects, never raw documents.
+- **repository** — data access. Extends `BaseRepository<TDocument>` for generic
+  CRUD + pagination; adds domain-specific queries.
+- **model** — the Mongoose schema + document type.
+- **validation** — Zod schemas (the request DTOs). Inferred types flow into the code.
 
 ---
 
@@ -74,25 +83,38 @@ Authentication is **on by default**; opt routes out with `@Public()`.
 
 ```
 src/
-├── config/                 # Typed configuration + env validation (fail-fast)
-├── common/                 # Cross-cutting building blocks (no business logic)
-│   ├── constants/          #   Reflector metadata keys, app constants
-│   ├── decorators/         #   @Public, @Roles, @CurrentUser, @ResponseMessage, ...
-│   ├── dto/                #   PaginationQueryDto, PaginatedResponseDto
-│   ├── enums/              #   Role, ...
-│   ├── filters/            #   AllExceptionsFilter
-│   ├── guards/             #   RolesGuard
-│   ├── interceptors/       #   TransformInterceptor, TimeoutInterceptor
-│   ├── interfaces/         #   ApiResponse, AuthenticatedUser, ...
-│   └── pipes/              #   ParseObjectIdPipe
-├── database/               # Mongoose connection + AbstractRepository/AbstractDocument
-├── redis/                  # Optional Redis client + RedisService (feature-flagged)
-├── health/                 # Liveness/readiness probes (Mongo, memory, Redis)
-├── modules/                # Feature modules (the domain)
-│   ├── auth/               #   Register / login / refresh / logout (JWT)
-│   └── users/              #   Reference CRUD module — mirror this pattern
-├── app.module.ts           # Root module: global providers + wiring
-└── main.ts                 # Bootstrap: security, versioning, Swagger, shutdown hooks
+├── server.ts                 # bootstrap: connect DB, listen, graceful shutdown
+├── app.ts                    # Express app factory: middleware + routes wiring
+├── routes.ts                 # mounts feature routers under /api/v1
+├── logger.ts                 # Pino root logger + createLogger(context)
+├── config/
+│   ├── env.ts                # Zod env schema (fail-fast validation)
+│   └── index.ts              # typed configuration tree
+├── common/
+│   ├── errors/               # HttpException family (BadRequest, NotFound, …)
+│   ├── middleware/           # authorize, validate, rate-limit, timeout,
+│   │                         #   request-id, request-logger, error-handler, …
+│   ├── utils/                # response envelope, pagination, objectId
+│   ├── types/                # api-response types, Express request augmentation
+│   ├── validation/           # shared Zod schemas (phone)
+│   └── enums/                # Role
+├── database/
+│   ├── connection.ts         # Mongoose connect + lifecycle logging
+│   └── base.repository.ts    # generic CRUD + pagination
+├── modules/
+│   ├── auth/                 # phone + OTP auth, JWT, SMS provider
+│   │   ├── auth.routes.ts / auth.controller.ts / auth.service.ts
+│   │   ├── auth.validation.ts / auth.middleware.ts / jwt.service.ts
+│   │   ├── otp/  (model · repository · service)
+│   │   ├── phone/ (phone.service)
+│   │   └── sms/  (types · console provider · service)
+│   └── users/                # users CRUD + profile
+│       ├── users.routes.ts / users.controller.ts / users.service.ts
+│       ├── users.repository.ts / users.model.ts / users.validation.ts
+│       └── user-response.ts  # entity → safe response mapper
+├── health/                   # /health probe (Mongo, memory, Redis)
+├── redis/                    # optional ioredis client + service
+└── openapi/                  # OpenAPI document built from the Zod schemas
 ```
 
 ---
@@ -101,105 +123,106 @@ src/
 
 ### Prerequisites
 
-- Node.js **>= 20** (see `.nvmrc` → 22)
-- MongoDB running locally, **or** use Docker Compose (below)
+- Node.js ≥ 20
+- A running MongoDB (local Windows service, Docker, or Atlas)
+- (Optional) Redis — only if `REDIS_ENABLED=true`
 
-### Local development
+### Install & run
 
 ```bash
-# 1. Install dependencies
 npm install
-
-# 2. Create your environment file
-cp .env.example .env      # then edit secrets (a ready-to-go .env is already included for dev)
-
-# 3. Start MongoDB (if you don't have one running)
-docker compose up -d mongo
-
-# 4. Run in watch mode
-npm run start:dev
+cp .env.example .env          # then edit values (or keep the dev defaults)
+npm run start:dev             # hot-reload dev server (tsx watch)
 ```
 
-The API will be available at:
+The API boots at `http://localhost:3000/api/v1` and Swagger UI at
+`http://localhost:3000/docs`.
 
-- Base URL: `http://localhost:3000/api/v1`
-- Swagger UI: `http://localhost:3000/docs`
-- Health check: `http://localhost:3000/api/v1/health`
-
-### Full stack with Docker
-
-Builds the API image and starts MongoDB + Redis:
+### Production build
 
 ```bash
-docker compose up --build
+npm run build                 # tsc → dist/
+npm start                     # node dist/server.js
+```
+
+### Docker
+
+```bash
+docker compose up --build     # api + mongo + redis
 ```
 
 ---
 
 ## Environment variables
 
-All variables are validated on boot — the app **refuses to start** if anything required
-is missing or malformed. See [`.env.example`](.env.example) for the full annotated list and
-[`src/config/env.validation.ts`](src/config/env.validation.ts) for the rules.
+All variables are validated on boot (see [`src/config/env.ts`](src/config/env.ts));
+the app refuses to start if anything required is missing or malformed. See
+[`.env.example`](.env.example) for the full annotated list. Highlights:
 
-Key ones: `MONGODB_URI`, `JWT_ACCESS_SECRET`, `JWT_REFRESH_SECRET` (each ≥ 16 chars).
-Generate secrets with `openssl rand -hex 32`.
+| Variable                   | Default      | Notes                                              |
+| -------------------------- | ------------ | -------------------------------------------------- |
+| `MONGODB_URI`              | _(required)_ | Mongo connection string                            |
+| `JWT_ACCESS_SECRET`        | _(required)_ | ≥ 16 chars                                         |
+| `JWT_REFRESH_SECRET`       | _(required)_ | ≥ 16 chars, different from the access secret       |
+| `OTP_MOCK_ENABLED`         | `true`       | dev: every code is `OTP_MOCK_CODE` and only logged |
+| `OTP_MOCK_CODE`            | `123456`     | the fixed code while mocking                        |
+| `SMS_PROVIDER`             | `console`    | only `console` is implemented today                 |
+| `PHONE_ALLOWED_DIAL_CODES` | `+91`        | comma-separated, or `*` for any country             |
+| `REDIS_ENABLED`            | `false`      | keep off until a caching layer is needed            |
+| `SWAGGER_ENABLED`          | `true`       | serve Swagger UI at `SWAGGER_PATH`                  |
 
 ---
 
 ## Available scripts
 
-| Script                 | Description                                  |
-| ---------------------- | -------------------------------------------- |
-| `npm run start:dev`    | Run with hot-reload                          |
-| `npm run start:prod`   | Run compiled output (`dist/`)                |
-| `npm run build`        | Compile to `dist/`                           |
-| `npm run lint`         | Lint and auto-fix                            |
-| `npm run lint:check`   | Lint without fixing (CI)                     |
-| `npm run format`       | Prettier write                               |
-| `npm test`             | Unit tests                                   |
-| `npm run test:cov`     | Unit tests with coverage                     |
-| `npm run test:e2e`     | End-to-end tests (requires MongoDB)          |
+| Script              | Description                         |
+| ------------------- | ----------------------------------- |
+| `npm run start:dev` | Hot-reload dev server (`tsx watch`) |
+| `npm run build`     | Type-check + compile to `dist/`     |
+| `npm start`         | Run the compiled server             |
+| `npm run typecheck` | `tsc --noEmit`                      |
+| `npm run lint`      | ESLint (auto-fix)                   |
+| `npm run format`    | Prettier write                      |
+| `npm test`          | Unit tests (Jest)                   |
+| `npm run test:e2e`  | End-to-end smoke tests (supertest)  |
 
 ---
 
 ## Conventions & patterns
 
-- **Validation**: every request body/query is a DTO decorated with `class-validator`.
-  Unknown fields are rejected.
-- **Errors**: throw Nest `HttpException`s (or let Mongoose errors bubble) — the global
-  filter formats them. Never hand-format error responses.
-- **Auth**: protected by default. Use `@Public()` to open a route, `@Roles(Role.Admin)`
-  to restrict, and `@CurrentUser()` to read the authenticated principal.
-- **IDs**: validate path params with `ParseObjectIdPipe`.
-- **Pagination**: accept `PaginationQueryDto`, return `PaginatedResponseDto` (use
-  `@ApiPaginatedResponse()` for docs).
-- **Serialization**: never return raw documents — map to a `*ResponseDto` so secrets
-  (refresh-token / OTP hashes) can never leak.
-- **Auth model**: phone number + OTP (no passwords). Identity is the `(dialCode, phoneNumber)`
-  pair; codes are issued/verified by the auth module's `OtpService` and delivered through a
-  pluggable `SmsProvider` (console stub in dev). Clients store the returned bearer tokens.
-- **Commits**: Conventional Commits, enforced by commitlint + Husky.
+- **Every error is thrown, never returned.** Throw an `HttpException` subclass
+  (`throw new NotFoundException()`); the central `errorHandler` turns it into the
+  standard error envelope. `asyncHandler` forwards async rejections automatically.
+- **Validation lives at the edge.** `validate({ body, query, params })` parses
+  with Zod before the controller runs, so handlers receive typed, trusted input
+  and unknown fields are stripped.
+- **Services return responses, not documents.** Map entities through a
+  `*-response` mapper so sensitive fields (e.g. the refresh-token hash) never leak.
+- **Repositories extend `BaseRepository`.** Read methods return lean objects.
+- **Singletons for wiring.** Each repository/service exports a ready instance
+  (`export const usersService = new UsersService(...)`) — simple, explicit DI.
 
 ---
 
 ## API response shape
 
-Every successful response uses one envelope:
+Every response uses one of two envelopes.
+
+**Success**
 
 ```json
 {
   "success": true,
   "statusCode": 200,
-  "message": "OK",
+  "message": "Profile retrieved successfully",
   "data": { "...": "..." },
-  "timestamp": "2026-06-03T10:00:00.000Z",
+  "timestamp": "2026-06-05T10:00:00.000Z",
   "path": "/api/v1/users/me",
-  "requestId": "..."
+  "requestId": "f0e1..."
 }
 ```
 
-Every error uses its mirror:
+**Error**
 
 ```json
 {
@@ -207,50 +230,56 @@ Every error uses its mirror:
   "statusCode": 400,
   "message": "Validation failed",
   "errorCode": "BAD_REQUEST",
-  "errors": ["email must be an email"],
-  "timestamp": "2026-06-03T10:00:00.000Z",
-  "path": "/api/v1/auth/register",
-  "requestId": "..."
+  "errors": [{ "field": "phoneNumber", "message": "phoneNumber must be exactly 10 digits" }],
+  "timestamp": "2026-06-05T10:00:00.000Z",
+  "path": "/api/v1/auth/login",
+  "requestId": "f0e1..."
 }
 ```
+
+Paginated `data` is `{ items: [...], meta: { page, limit, totalItems, totalPages, hasPreviousPage, hasNextPage } }`.
+
+---
+
+## Authentication flow
+
+Identity is a **phone number** — `(dialCode, phoneNumber)` — verified by **OTP**.
+There is no password. Tokens are returned in the JSON body as **bearer** tokens
+(ideal for the React Native / Expo app: store in expo-secure-store, attach via an
+interceptor, refresh on 401).
+
+```
+POST /auth/otp/request   → { isRegistered, expiresInSeconds, mocked }
+  ├─ isRegistered=false → POST /auth/register  (OTP + profile)  → { user, tokens }
+  └─ isRegistered=true  → POST /auth/login     (OTP)            → { user, tokens }
+
+POST /auth/refresh  (refreshToken)  → new { accessToken, refreshToken, ... }
+POST /auth/logout   (Bearer)        → revokes the stored refresh token
+```
+
+In development (`OTP_MOCK_ENABLED=true`) every code is `123456` and is logged
+instead of sent — no SMS account required. Swap in a real gateway by implementing
+one `SmsProvider` class and adding a `case` in `sms.service.ts`.
 
 ---
 
 ## Adding a new feature module
 
-Mirror the `users` module:
+Copy the **users** module as the template:
 
-```bash
-nest g module modules/expenses
-nest g controller modules/expenses
-nest g service modules/expenses
-```
-
-Then:
-
-1. Create `schemas/expense.schema.ts` extending `AbstractDocument`.
-2. Create `expenses.repository.ts` extending `AbstractRepository<Expense>`.
-3. Add `CreateExpenseDto`, `UpdateExpenseDto`, `ExpenseResponseDto`.
-4. Register the model in the module with `MongooseModule.forFeature([...])`.
-5. Import the module in `AppModule`.
+1. `xyz.model.ts` — Mongoose schema + `XyzDocument` interface (extends `BaseDocument`).
+2. `xyz.repository.ts` — `class XyzRepository extends BaseRepository<XyzDocument>`; export a singleton.
+3. `xyz.validation.ts` — Zod schemas for create/update/query.
+4. `xyz-response.ts` — `toXyzResponse(doc)` mapper.
+5. `xyz.service.ts` — business logic; export a singleton.
+6. `xyz.controller.ts` — `asyncHandler` handlers calling the service + `sendSuccess`.
+7. `xyz.routes.ts` — wire routes with `validate`, `authenticate`, `authorize`.
+8. Mount the router in [`src/routes.ts`](src/routes.ts) and document it in
+   [`src/openapi/document.ts`](src/openapi/document.ts).
 
 ---
 
 ## Domain roadmap
 
-The foundation is in place; the finance domain will be built as feature modules under
-`src/modules/`:
-
-- **categories** — categorise expenses (food, rent, travel, …) for analysis
-- **expenses** — daily expense tracking (amount, category, date, notes, attachments)
-- **groups** — friend groups for shared expenses
-- **splits / settlements** — split an expense across people and settle balances
-- **income** — salary & other income, with pay dates
-- **emis** — recurring EMIs with due dates
-- **budgets** — monthly budgets per category
-- **goals** — savings goals (target amount + date)
-- **investments** — investment holdings & contributions
-- **analytics** — category-wise breakdowns, month planning (income − EMIs − spend),
-  trends and insights
-
-> This README documents the scaffolding decisions; see inline JSDoc in `src/` for details.
+Planned feature modules under `src/modules/`: **categories, expenses, groups,
+splits/settlements, income, EMIs, budgets, goals, investments, analytics.**

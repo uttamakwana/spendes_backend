@@ -1,5 +1,5 @@
-import { Injectable, Logger } from '@nestjs/common';
-import { SmsMessage, SmsProvider } from './sms.types';
+import { createLogger } from '../../../logger';
+import type { SmsMessage, SmsProvider } from './sms.types';
 
 /**
  * Development SMS provider — it does not send anything, it just logs the message.
@@ -7,13 +7,12 @@ import { SmsMessage, SmsProvider } from './sms.types';
  * it lets you sign in with the fixed code without an SMS account. Replace by
  * setting `SMS_PROVIDER` to a real gateway once integrated.
  */
-@Injectable()
 export class ConsoleSmsProvider implements SmsProvider {
   readonly name = 'console';
-  private readonly logger = new Logger(ConsoleSmsProvider.name);
+  private readonly logger = createLogger('ConsoleSmsProvider');
 
   send(message: SmsMessage): Promise<void> {
-    this.logger.log(`📱 [DEV SMS] to ${message.to}: ${message.body}`);
+    this.logger.info(`📱 [DEV SMS] to ${message.to}: ${message.body}`);
     return Promise.resolve();
   }
 }

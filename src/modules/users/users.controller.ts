@@ -1,77 +1,37 @@
-import {
-  Body,
-  Controller,
-  Delete,
-  Get,
-  HttpCode,
-  HttpStatus,
-  Param,
-  Patch,
-  Query,
-} from '@nestjs/common';
-import { ApiBearerAuth, ApiOkResponse, ApiOperation, ApiParam, ApiTags } from '@nestjs/swagger';
-import { Types } from 'mongoose';
-import {
-  ApiPaginatedResponse,
-  CurrentUser,
-  PaginationQueryDto,
-  ParseObjectIdPipe,
-  ResponseMessage,
-  Role,
-  Roles,
-} from '../../common';
-import { UpdateUserDto } from './dto/update-user.dto';
-import { UserResponseDto } from './dto/user-response.dto';
-import { UsersService } from './users.service';
+import type { Request, Response } from 'express';
+import { asyncHandler } from '../../common/middleware/async-handler';
+import { sendSuccess } from '../../common/utils/response';
+import type { PaginationQuery } from '../../common/utils/pagination';
+import type { UpdateUserInput } from './users.validation';
+import { usersService } from './users.service';
 
-@ApiTags('Users')
-@ApiBearerAuth()
-@Controller('users')
-export class UsersController {
-  constructor(private readonly usersService: UsersService) {}
+/** GET /users/me — the authenticated user's own profile. */
+export const getMe = asyncHandler(async (req: Request, res: Response) => {
+  const user = await usersService.findById(req.user!.id);
+  sendSuccess(res, req, user, 'Profile retrieved successfully');
+});
 
-  @Get('me')
-  @ApiOperation({ summary: 'Get the authenticated user profile' })
-  @ApiOkResponse({ type: UserResponseDto })
-  @ResponseMessage('Profile retrieved successfully')
-  getMe(@CurrentUser('id') userId: string): Promise<UserResponseDto> {
-    return this.usersService.findById(userId);
-  }
+/** PATCH /users/me — update the authenticated user's profile. */
+export const updateMe = asyncHandler(async (req: Request, res: Response) => {
+  const user = await usersService.update(req.user!.id, req.body as UpdateUserInput);
+  sendSuccess(res, req, user, 'Profile updated successfully');
+});
 
-  @Patch('me')
-  @ApiOperation({ summary: 'Update the authenticated user profile' })
-  @ApiOkResponse({ type: UserResponseDto })
-  @ResponseMessage('Profile updated successfully')
-  updateMe(
-    @CurrentUser('id') userId: string,
-    @Body() dto: UpdateUserDto,
-  ): Promise<UserResponseDto> {
-    return this.usersService.update(userId, dto);
-  }
+/** GET /users — list users (admin only). */
+export const listUsers = asyncHandler(async (req: Request, res: Response) => {
+  const page = await usersService.findAll(req.query as unknown as PaginationQuery);
+  sendSuccess(res, req, page, 'Users retrieved successfully');
+});
 
-  @Get()
-  @Roles(Role.Admin)
-  @ApiOperation({ summary: 'List users (admin only)' })
-  @ApiPaginatedResponse(UserResponseDto)
-  findAll(@Query() query: PaginationQueryDto) {
-    return this.usersService.findAll(query);
-  }
+/** GET /users/:id — fetch a user by id (admin only). */
+export const getUser = asyncHandler(async (req: Request, res: Response) => {
+  // `id` is validated to a single ObjectId string by `validate({ params: idParamSchema })`.
+  const user = await usersService.findById(req.params.id as string);
+  sendSuccess(res, req, user, 'User retrieved successfully');
+});
 
-  @Get(':id')
-  @Roles(Role.Admin)
-  @ApiOperation({ summary: 'Get a user by id (admin only)' })
-  @ApiParam({ name: 'id', type: String })
-  @ApiOkResponse({ type: UserResponseDto })
-  findOne(@Param('id', ParseObjectIdPipe) id: Types.ObjectId): Promise<UserResponseDto> {
-    return this.usersService.findById(id.toString());
-  }
-
-  @Delete(':id')
-  @Roles(Role.Admin)
-  @HttpCode(HttpStatus.NO_CONTENT)
-  @ApiOperation({ summary: 'Delete a user by id (admin only)' })
-  @ApiParam({ name: 'id', type: String })
-  remove(@Param('id', ParseObjectIdPipe) id: Types.ObjectId): Promise<void> {
-    return this.usersService.remove(id.toString());
-  }
-}
+/** DELETE /users/:id — delete a user by id (admin only). */
+export const deleteUser = asyncHandler(async (req: Request, res: Response) => {
+  await usersService.remove(req.params.id as string);
+  res.status(204).send();
+});

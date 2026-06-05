@@ -1,6 +1,5 @@
-import { BadRequestException, Injectable } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
-import { AppConfiguration } from '../../../config';
+import { config } from '../../../config';
+import { BadRequestException } from '../../../common/errors/http-exception';
 
 /** A validated, normalized phone identity. */
 export interface NormalizedPhone {
@@ -23,9 +22,8 @@ interface DialCodeRule {
  * a clean (dialCode, phoneNumber) pair. The set of accepted dial codes is config
  * driven (`PHONE_ALLOWED_DIAL_CODES`) — India-only for the MVP, `*` for global —
  * and the per-country digit rules live in {@link RULES}, so going worldwide is a
- * config + table change, not a scatter of DTO edits.
+ * config + table change, not a scatter of validation edits.
  */
-@Injectable()
 export class PhoneService {
   private static readonly DEFAULT_RULE: DialCodeRule = { lengths: [6, 7, 8, 9, 10, 11, 12] };
 
@@ -33,14 +31,8 @@ export class PhoneService {
     '+91': { lengths: [10], pattern: /^[6-9]\d{9}$/ },
   };
 
-  private readonly defaultDialCode: string;
-  private readonly allowedDialCodes: string[] | string;
-
-  constructor(configService: ConfigService<AppConfiguration, true>) {
-    const phone = configService.get('phone', { infer: true });
-    this.defaultDialCode = phone.defaultDialCode;
-    this.allowedDialCodes = phone.allowedDialCodes;
-  }
+  private readonly defaultDialCode = config.phone.defaultDialCode;
+  private readonly allowedDialCodes = config.phone.allowedDialCodes;
 
   /**
    * Resolves the dial code (falling back to the configured default), strips any
@@ -78,3 +70,5 @@ export class PhoneService {
     return Array.isArray(this.allowedDialCodes) && this.allowedDialCodes.includes(dialCode);
   }
 }
+
+export const phoneService = new PhoneService();

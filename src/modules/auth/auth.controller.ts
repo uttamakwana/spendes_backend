@@ -1,75 +1,41 @@
-import { Body, Controller, HttpCode, HttpStatus, Post } from '@nestjs/common';
-import {
-  ApiBearerAuth,
-  ApiCreatedResponse,
-  ApiOkResponse,
-  ApiOperation,
-  ApiTags,
-} from '@nestjs/swagger';
-import { Throttle } from '@nestjs/throttler';
-import { CurrentUser, Public, ResponseMessage } from '../../common';
-import { AuthService } from './auth.service';
-import { AuthResponseDto, AuthTokensDto, OtpRequestResponseDto } from './dto/auth-response.dto';
-import { LoginDto } from './dto/login.dto';
-import { RefreshTokenDto } from './dto/refresh-token.dto';
-import { RegisterDto } from './dto/register.dto';
-import { RequestOtpDto } from './dto/request-otp.dto';
+import type { Request, Response } from 'express';
+import { asyncHandler } from '../../common/middleware/async-handler';
+import { sendSuccess } from '../../common/utils/response';
+import { authService } from './auth.service';
+import type {
+  LoginInput,
+  RefreshTokenInput,
+  RegisterInput,
+  RequestOtpInput,
+} from './auth.validation';
 
-@ApiTags('Auth')
-@Controller('auth')
-export class AuthController {
-  constructor(private readonly authService: AuthService) {}
+/** POST /auth/otp/request — send a one-time login/registration code. */
+export const requestOtp = asyncHandler(async (req: Request, res: Response) => {
+  const result = await authService.requestOtp(req.body as RequestOtpInput);
+  sendSuccess(res, req, result, 'Verification code sent', 200);
+});
 
-  @Public()
-  @Post('otp/request')
-  @HttpCode(HttpStatus.OK)
-  @Throttle({ default: { limit: 3, ttl: 60_000 } })
-  @ApiOperation({ summary: 'Send a one-time login/registration code to a phone number' })
-  @ApiOkResponse({ type: OtpRequestResponseDto })
-  @ResponseMessage('Verification code sent')
-  requestOtp(@Body() dto: RequestOtpDto): Promise<OtpRequestResponseDto> {
-    return this.authService.requestOtp(dto);
-  }
+/** POST /auth/register — verify the OTP and create a new account. */
+export const register = asyncHandler(async (req: Request, res: Response) => {
+  const result = await authService.register(req.body as RegisterInput);
+  sendSuccess(res, req, result, 'Registration successful', 201);
+});
 
-  @Public()
-  @Post('register')
-  @Throttle({ default: { limit: 5, ttl: 60_000 } })
-  @ApiOperation({ summary: 'Verify the OTP and create a new account' })
-  @ApiCreatedResponse({ type: AuthResponseDto })
-  @ResponseMessage('Registration successful')
-  register(@Body() dto: RegisterDto): Promise<AuthResponseDto> {
-    return this.authService.register(dto);
-  }
+/** POST /auth/login — verify the OTP for an existing account and receive tokens. */
+export const login = asyncHandler(async (req: Request, res: Response) => {
+  const result = await authService.login(req.body as LoginInput);
+  sendSuccess(res, req, result, 'Login successful', 200);
+});
 
-  @Public()
-  @Post('login')
-  @HttpCode(HttpStatus.OK)
-  @Throttle({ default: { limit: 5, ttl: 60_000 } })
-  @ApiOperation({ summary: 'Verify the OTP for an existing account and receive tokens' })
-  @ApiOkResponse({ type: AuthResponseDto })
-  @ResponseMessage('Login successful')
-  login(@Body() dto: LoginDto): Promise<AuthResponseDto> {
-    return this.authService.login(dto);
-  }
+/** POST /auth/refresh — exchange a refresh token for a new token pair. */
+export const refresh = asyncHandler(async (req: Request, res: Response) => {
+  const { refreshToken } = req.body as RefreshTokenInput;
+  const tokens = await authService.refreshTokens(refreshToken);
+  sendSuccess(res, req, tokens, 'Token refreshed successfully', 200);
+});
 
-  @Public()
-  @Post('refresh')
-  @HttpCode(HttpStatus.OK)
-  @Throttle({ default: { limit: 10, ttl: 60_000 } })
-  @ApiOperation({ summary: 'Exchange a refresh token for a new token pair' })
-  @ApiOkResponse({ type: AuthTokensDto })
-  @ResponseMessage('Token refreshed successfully')
-  refresh(@Body() dto: RefreshTokenDto): Promise<AuthTokensDto> {
-    return this.authService.refreshTokens(dto.refreshToken);
-  }
-
-  @Post('logout')
-  @ApiBearerAuth()
-  @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: 'Revoke the refresh token for the current session' })
-  @ResponseMessage('Logged out successfully')
-  async logout(@CurrentUser('id') userId: string): Promise<{ revoked: boolean }> {
-    await this.authService.logout(userId);
-    return { revoked: true };
-  }
-}
+/** POST /auth/logout — revoke the refresh token for the current session. */
+export const logout = asyncHandler(async (req: Request, res: Response) => {
+  await authService.logout(req.user!.id);
+  sendSuccess(res, req, { revoked: true }, 'Logged out successfully', 200);
+});

@@ -26,4 +26,4 @@ COPY package.json ./
 USER node
 EXPOSE 3000
 ENTRYPOINT ["dumb-init", "--"]
-CMD ["node", "dist/main"]
+CMD ["node", "dist/server.js"]

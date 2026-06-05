@@ -1,39 +1,33 @@
-import { Injectable, Logger } from '@nestjs/common';
-import { InjectModel } from '@nestjs/mongoose';
-import { Model } from 'mongoose';
-import { AbstractRepository } from '../../../database/abstract.repository';
-import { OtpCode } from './schemas/otp-code.schema';
+import { BaseRepository } from '../../../database/base.repository';
+import { OtpCodeModel, type OtpCodeDocument } from './otp.model';
 
-@Injectable()
-export class OtpRepository extends AbstractRepository<OtpCode> {
-  protected readonly logger = new Logger(OtpRepository.name);
-
-  constructor(@InjectModel(OtpCode.name) otpModel: Model<OtpCode>) {
-    super(otpModel);
+export class OtpRepository extends BaseRepository<OtpCodeDocument> {
+  constructor() {
+    super(OtpCodeModel);
   }
 
   /** Most recently issued, still-unexpired code for a phone, or null. */
-  async findActive(dialCode: string, phoneNumber: string): Promise<OtpCode | null> {
+  async findActive(dialCode: string, phoneNumber: string): Promise<OtpCodeDocument | null> {
     return this.model
       .findOne({ dialCode, phoneNumber, expiresAt: { $gt: new Date() } })
       .sort({ createdAt: -1 })
-      .lean<OtpCode>(true)
+      .lean<OtpCodeDocument>(true)
       .exec();
   }
 
   /** Most recent code regardless of expiry — used for resend-cooldown checks. */
-  async findLatest(dialCode: string, phoneNumber: string): Promise<OtpCode | null> {
+  async findLatest(dialCode: string, phoneNumber: string): Promise<OtpCodeDocument | null> {
     return this.model
       .findOne({ dialCode, phoneNumber })
       .sort({ createdAt: -1 })
-      .lean<OtpCode>(true)
+      .lean<OtpCodeDocument>(true)
       .exec();
   }
 
   async incrementAttempts(id: string): Promise<number> {
     const updated = await this.model
       .findByIdAndUpdate(id, { $inc: { attempts: 1 } }, { new: true })
-      .lean<OtpCode>(true)
+      .lean<OtpCodeDocument>(true)
       .exec();
     return updated?.attempts ?? 0;
   }
@@ -43,3 +37,5 @@ export class OtpRepository extends AbstractRepository<OtpCode> {
     await this.model.deleteMany({ dialCode, phoneNumber }).exec();
   }
 }
+
+export const otpRepository = new OtpRepository();
