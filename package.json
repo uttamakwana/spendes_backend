@@ -14,6 +14,7 @@
     "start": "node dist/server.js",
     "start:dev": "tsx watch src/server.ts",
     "start:prod": "node dist/server.js",
+    "seed": "tsx src/database/seed.ts",
     "typecheck": "tsc --noEmit",
     "format": "prettier --write \"src/**/*.ts\" \"test/**/*.ts\"",
     "lint": "eslint \"{src,test}/**/*.ts\" --fix",

@@ -13,6 +13,19 @@ import {
   requestOtpSchema,
 } from '../modules/auth/auth.validation';
 import { updateUserSchema } from '../modules/users/users.validation';
+import {
+  createExpenseSchema,
+  expenseSummaryQuerySchema,
+  listExpensesQuerySchema,
+  updateExpenseSchema,
+} from '../modules/expenses/expenses.validation';
+import {
+  createCategorySchema,
+  listCategoriesQuerySchema,
+  updateCategorySchema,
+} from '../modules/categories/categories.validation';
+import { PaymentMethod } from '../common/enums/payment-method';
+import { CategoryType } from '../common/enums/category-type';
 import { paginationQuerySchema } from '../common/utils/pagination';
 import { idParamSchema } from '../common/utils/object-id';
 
@@ -63,6 +76,62 @@ const otpRequestResponseSchema = z
     mocked: z.boolean(),
   })
   .openapi('OtpRequestResponse');
+
+const expenseResponseSchema = z
+  .object({
+    id: z.string(),
+    userId: z.string(),
+    amount: z.number(),
+    currency: z.string(),
+    category: z.string(),
+    description: z.string().optional(),
+    merchant: z.string().optional(),
+    paymentMethod: z.nativeEnum(PaymentMethod),
+    spentAt: z.string(),
+    notes: z.string().optional(),
+    tags: z.array(z.string()),
+    receiptUrl: z.string().optional(),
+    createdAt: z.string(),
+    updatedAt: z.string(),
+  })
+  .openapi('ExpenseResponse');
+
+const expenseSummarySchema = z
+  .object({
+    from: z.string().optional(),
+    to: z.string().optional(),
+    totalAmount: z.number(),
+    count: z.number(),
+    byCategory: z.array(
+      z.object({ category: z.string(), totalAmount: z.number(), count: z.number() }),
+    ),
+    byPaymentMethod: z.array(
+      z.object({
+        paymentMethod: z.nativeEnum(PaymentMethod),
+        totalAmount: z.number(),
+        count: z.number(),
+      }),
+    ),
+  })
+  .openapi('ExpenseSummary');
+
+const categoryResponseSchema = z
+  .object({
+    id: z.string(),
+    name: z.string(),
+    slug: z.string(),
+    type: z.nativeEnum(CategoryType),
+    icon: z.string().optional(),
+    color: z.string().optional(),
+    iconUrl: z.string().optional(),
+    description: z.string().optional(),
+    isSystem: z.boolean(),
+    isActive: z.boolean(),
+    sortOrder: z.number(),
+    createdAt: z.string(),
+    updatedAt: z.string(),
+  })
+  .openapi('CategoryResponse');
 
 const pageMetaSchema = z.object({
   page: z.number(),
@@ -248,6 +317,167 @@ export function buildOpenApiDocument(): ReturnType<OpenApiGeneratorV3['generateD
     path: '/users/{id}',
     summary: 'Delete a user by id (admin only)',
     tags: ['Users'],
+    security: bearer,
+    request: { params: idParamSchema },
+    responses: {
+      204: { description: 'Deleted' },
+      404: { description: 'Not found', ...jsonContent(errorResponseSchema) },
+    },
+  });
+
+  // --- Categories ---
+  registry.registerPath({
+    method: 'get',
+    path: '/categories',
+    summary: 'List categories (admins may include inactive)',
+    tags: ['Categories'],
+    security: bearer,
+    request: { query: listCategoriesQuerySchema },
+    responses: {
+      200: {
+        description: 'Categories',
+        ...jsonContent(success(z.array(categoryResponseSchema))),
+      },
+      401: { description: 'Unauthorized', ...jsonContent(errorResponseSchema) },
+    },
+  });
+
+  registry.registerPath({
+    method: 'post',
+    path: '/categories',
+    summary: 'Create a category (admin only)',
+    tags: ['Categories'],
+    security: bearer,
+    request: { body: jsonContent(createCategorySchema) },
+    responses: {
+      201: { description: 'Category created', ...jsonContent(success(categoryResponseSchema)) },
+      400: { description: 'Validation failed', ...jsonContent(errorResponseSchema) },
+      403: { description: 'Forbidden', ...jsonContent(errorResponseSchema) },
+      409: { description: 'Slug already exists', ...jsonContent(errorResponseSchema) },
+    },
+  });
+
+  registry.registerPath({
+    method: 'get',
+    path: '/categories/{id}',
+    summary: 'Get a category by id',
+    tags: ['Categories'],
+    security: bearer,
+    request: { params: idParamSchema },
+    responses: {
+      200: { description: 'Category', ...jsonContent(success(categoryResponseSchema)) },
+      404: { description: 'Not found', ...jsonContent(errorResponseSchema) },
+    },
+  });
+
+  registry.registerPath({
+    method: 'patch',
+    path: '/categories/{id}',
+    summary: 'Update a category (admin only)',
+    tags: ['Categories'],
+    security: bearer,
+    request: { params: idParamSchema, body: jsonContent(updateCategorySchema) },
+    responses: {
+      200: { description: 'Updated category', ...jsonContent(success(categoryResponseSchema)) },
+      403: { description: 'Forbidden', ...jsonContent(errorResponseSchema) },
+      404: { description: 'Not found', ...jsonContent(errorResponseSchema) },
+    },
+  });
+
+  registry.registerPath({
+    method: 'delete',
+    path: '/categories/{id}',
+    summary: 'Delete a non-system category (admin only)',
+    tags: ['Categories'],
+    security: bearer,
+    request: { params: idParamSchema },
+    responses: {
+      204: { description: 'Deleted' },
+      400: {
+        description: 'System categories cannot be deleted',
+        ...jsonContent(errorResponseSchema),
+      },
+      404: { description: 'Not found', ...jsonContent(errorResponseSchema) },
+    },
+  });
+
+  // --- Expenses ---
+  registry.registerPath({
+    method: 'post',
+    path: '/expenses',
+    summary: 'Record a new expense',
+    tags: ['Expenses'],
+    security: bearer,
+    request: { body: jsonContent(createExpenseSchema) },
+    responses: {
+      201: { description: 'Expense created', ...jsonContent(success(expenseResponseSchema)) },
+      400: { description: 'Validation failed', ...jsonContent(errorResponseSchema) },
+      401: { description: 'Unauthorized', ...jsonContent(errorResponseSchema) },
+    },
+  });
+
+  registry.registerPath({
+    method: 'get',
+    path: '/expenses',
+    summary: "List the authenticated user's expenses (paginated, filterable)",
+    tags: ['Expenses'],
+    security: bearer,
+    request: { query: listExpensesQuerySchema },
+    responses: {
+      200: {
+        description: 'Paginated expenses',
+        ...jsonContent(
+          success(z.object({ items: z.array(expenseResponseSchema), meta: pageMetaSchema })),
+        ),
+      },
+      401: { description: 'Unauthorized', ...jsonContent(errorResponseSchema) },
+    },
+  });
+
+  registry.registerPath({
+    method: 'get',
+    path: '/expenses/summary',
+    summary: 'Spend totals and breakdowns over an optional date window',
+    tags: ['Expenses'],
+    security: bearer,
+    request: { query: expenseSummaryQuerySchema },
+    responses: {
+      200: { description: 'Expense summary', ...jsonContent(success(expenseSummarySchema)) },
+      401: { description: 'Unauthorized', ...jsonContent(errorResponseSchema) },
+    },
+  });
+
+  registry.registerPath({
+    method: 'get',
+    path: '/expenses/{id}',
+    summary: 'Get an expense by id',
+    tags: ['Expenses'],
+    security: bearer,
+    request: { params: idParamSchema },
+    responses: {
+      200: { description: 'Expense', ...jsonContent(success(expenseResponseSchema)) },
+      404: { description: 'Not found', ...jsonContent(errorResponseSchema) },
+    },
+  });
+
+  registry.registerPath({
+    method: 'patch',
+    path: '/expenses/{id}',
+    summary: 'Update an expense by id',
+    tags: ['Expenses'],
+    security: bearer,
+    request: { params: idParamSchema, body: jsonContent(updateExpenseSchema) },
+    responses: {
+      200: { description: 'Updated expense', ...jsonContent(success(expenseResponseSchema)) },
+      404: { description: 'Not found', ...jsonContent(errorResponseSchema) },
+    },
+  });
+
+  registry.registerPath({
+    method: 'delete',
+    path: '/expenses/{id}',
+    summary: 'Delete an expense by id',
+    tags: ['Expenses'],
     security: bearer,
     request: { params: idParamSchema },
     responses: {

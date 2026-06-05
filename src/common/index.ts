@@ -3,6 +3,8 @@ export * from './errors/http-exception';
 
 // Enums
 export * from './enums/role';
+export * from './enums/payment-method';
+export * from './enums/category-type';
 
 // Types
 export * from './types/api-response';
@@ -12,6 +14,7 @@ export * from './types/authenticated-user';
 export * from './utils/response';
 export * from './utils/pagination';
 export * from './utils/object-id';
+export * from './utils/slug';
 
 // Middleware
 export * from './middleware/async-handler';
