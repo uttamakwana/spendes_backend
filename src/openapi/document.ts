@@ -20,6 +20,12 @@ import {
   updateExpenseSchema,
 } from '../modules/expenses/expenses.validation';
 import {
+  createIncomeSchema,
+  incomeSummaryQuerySchema,
+  listIncomeQuerySchema,
+  updateIncomeSchema,
+} from '../modules/income/income.validation';
+import {
   createCategorySchema,
   listCategoriesQuerySchema,
   updateCategorySchema,
@@ -114,6 +120,38 @@ const expenseSummarySchema = z
     ),
   })
   .openapi('ExpenseSummary');
+
+const incomeResponseSchema = z
+  .object({
+    id: z.string(),
+    userId: z.string(),
+    amount: z.number(),
+    currency: z.string(),
+    category: z.string(),
+    source: z.string().optional(),
+    description: z.string().optional(),
+    receivedVia: z.nativeEnum(PaymentMethod),
+    receivedAt: z.string(),
+    notes: z.string().optional(),
+    tags: z.array(z.string()),
+    isRecurring: z.boolean(),
+    createdAt: z.string(),
+    updatedAt: z.string(),
+  })
+  .openapi('IncomeResponse');
+
+const incomeSummarySchema = z
+  .object({
+    from: z.string().optional(),
+    to: z.string().optional(),
+    totalAmount: z.number(),
+    count: z.number(),
+    byCategory: z.array(
+      z.object({ category: z.string(), totalAmount: z.number(), count: z.number() }),
+    ),
+    bySource: z.array(z.object({ source: z.string(), totalAmount: z.number(), count: z.number() })),
+  })
+  .openapi('IncomeSummary');
 
 const categoryResponseSchema = z
   .object({
@@ -478,6 +516,91 @@ export function buildOpenApiDocument(): ReturnType<OpenApiGeneratorV3['generateD
     path: '/expenses/{id}',
     summary: 'Delete an expense by id',
     tags: ['Expenses'],
+    security: bearer,
+    request: { params: idParamSchema },
+    responses: {
+      204: { description: 'Deleted' },
+      404: { description: 'Not found', ...jsonContent(errorResponseSchema) },
+    },
+  });
+
+  // --- Income ---
+  registry.registerPath({
+    method: 'post',
+    path: '/income',
+    summary: 'Record a new income entry',
+    tags: ['Income'],
+    security: bearer,
+    request: { body: jsonContent(createIncomeSchema) },
+    responses: {
+      201: { description: 'Income created', ...jsonContent(success(incomeResponseSchema)) },
+      400: { description: 'Validation failed', ...jsonContent(errorResponseSchema) },
+      401: { description: 'Unauthorized', ...jsonContent(errorResponseSchema) },
+    },
+  });
+
+  registry.registerPath({
+    method: 'get',
+    path: '/income',
+    summary: "List the authenticated user's income (paginated, filterable)",
+    tags: ['Income'],
+    security: bearer,
+    request: { query: listIncomeQuerySchema },
+    responses: {
+      200: {
+        description: 'Paginated income',
+        ...jsonContent(
+          success(z.object({ items: z.array(incomeResponseSchema), meta: pageMetaSchema })),
+        ),
+      },
+      401: { description: 'Unauthorized', ...jsonContent(errorResponseSchema) },
+    },
+  });
+
+  registry.registerPath({
+    method: 'get',
+    path: '/income/summary',
+    summary: 'Income totals and breakdowns over an optional date window',
+    tags: ['Income'],
+    security: bearer,
+    request: { query: incomeSummaryQuerySchema },
+    responses: {
+      200: { description: 'Income summary', ...jsonContent(success(incomeSummarySchema)) },
+      401: { description: 'Unauthorized', ...jsonContent(errorResponseSchema) },
+    },
+  });
+
+  registry.registerPath({
+    method: 'get',
+    path: '/income/{id}',
+    summary: 'Get an income entry by id',
+    tags: ['Income'],
+    security: bearer,
+    request: { params: idParamSchema },
+    responses: {
+      200: { description: 'Income', ...jsonContent(success(incomeResponseSchema)) },
+      404: { description: 'Not found', ...jsonContent(errorResponseSchema) },
+    },
+  });
+
+  registry.registerPath({
+    method: 'patch',
+    path: '/income/{id}',
+    summary: 'Update an income entry by id',
+    tags: ['Income'],
+    security: bearer,
+    request: { params: idParamSchema, body: jsonContent(updateIncomeSchema) },
+    responses: {
+      200: { description: 'Updated income', ...jsonContent(success(incomeResponseSchema)) },
+      404: { description: 'Not found', ...jsonContent(errorResponseSchema) },
+    },
+  });
+
+  registry.registerPath({
+    method: 'delete',
+    path: '/income/{id}',
+    summary: 'Delete an income entry by id',
+    tags: ['Income'],
     security: bearer,
     request: { params: idParamSchema },
     responses: {

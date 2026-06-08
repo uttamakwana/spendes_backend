@@ -5,6 +5,7 @@ import { authRouter } from './modules/auth/auth.routes';
 import { usersRouter } from './modules/users/users.routes';
 import { categoriesRouter } from './modules/categories/categories.routes';
 import { expensesRouter } from './modules/expenses/expenses.routes';
+import { incomeRouter } from './modules/income/income.routes';
 import { healthRouter } from './health/health.routes';
 
 export interface AppInfo {
@@ -38,4 +39,5 @@ apiRouter.use('/auth', authRouter);
 apiRouter.use('/users', usersRouter);
 apiRouter.use('/categories', categoriesRouter);
 apiRouter.use('/expenses', expensesRouter);
+apiRouter.use('/income', incomeRouter);
 apiRouter.use('/health', healthRouter);
