@@ -20,7 +20,7 @@ Built with **Express 5 · TypeScript (strict) · MongoDB (Mongoose) · Zod · JW
 - [API response shape](#api-response-shape)
 - [Authentication flow](#authentication-flow)
 - [Adding a new feature module](#adding-a-new-feature-module)
-- [Domain roadmap](#domain-roadmap)
+- [Feature modules & API](#feature-modules--api)
 
 ---
 
@@ -102,16 +102,21 @@ src/
 │   ├── connection.ts         # Mongoose connect + lifecycle logging
 │   └── base.repository.ts    # generic CRUD + pagination
 ├── modules/
-│   ├── auth/                 # phone + OTP auth, JWT, SMS provider
-│   │   ├── auth.routes.ts / auth.controller.ts / auth.service.ts
-│   │   ├── auth.validation.ts / auth.middleware.ts / jwt.service.ts
-│   │   ├── otp/  (model · repository · service)
-│   │   ├── phone/ (phone.service)
-│   │   └── sms/  (types · console provider · service)
-│   └── users/                # users CRUD + profile
-│       ├── users.routes.ts / users.controller.ts / users.service.ts
-│       ├── users.repository.ts / users.model.ts / users.validation.ts
-│       └── user-response.ts  # entity → safe response mapper
+│   ├── auth/                 # phone + OTP auth, JWT, pluggable SMS provider
+│   ├── users/                # profile (incl. plan + UPI id) + admin user CRUD
+│   ├── categories/           # global expense/income reference data (seeded)
+│   ├── expenses/             # personal expenses (+ materialized group/friend shares)
+│   ├── income/               # income tracking + summary
+│   ├── groups/               # shared groups + members (invite by phone, auto-link)
+│   ├── splits/               # group expenses (4 strategies), balances, settlements
+│   ├── friends/              # 1-on-1 direct splits (modelled as a 2-person group)
+│   ├── budgets/              # per-category/overall limits with live spent + status
+│   ├── emis/                 # recurring obligations + commitment summary
+│   ├── goals/                # savings goals + contributions
+│   ├── investments/          # portfolio holdings + allocation / gain-loss
+│   ├── analytics/            # cross-module dashboard (overview, cash-flow)
+│   ├── entitlements/         # plan/feature gate (dormant until the Pro tier)
+│   └── payments/             # pluggable payment provider (UPI intent)
 ├── health/                   # /health probe (Mongo, memory, Redis)
 ├── redis/                    # optional ioredis client + service
 └── openapi/                  # OpenAPI document built from the Zod schemas
@@ -279,7 +284,30 @@ Copy the **users** module as the template:
 
 ---
 
-## Domain roadmap
+## Feature modules & API
 
-Planned feature modules under `src/modules/`: **categories, expenses, groups,
-splits/settlements, income, EMIs, budgets, goals, investments, analytics.**
+The full domain is implemented. Every endpoint is under `/api/v1`, documented in
+Swagger (`/docs`), and covered by the end-to-end smoke test
+([`scripts/smoke-test.ps1`](scripts/smoke-test.ps1) — 93 checks against live Mongo).
+A ready-to-import Postman collection lives in [`postman/`](postman/).
+
+| Module | Routes | Notes |
+| ------ | ------ | ----- |
+| **Auth** | `POST /auth/otp/request·register·login·refresh·logout` | Phone + OTP; bearer tokens in the JSON body |
+| **Users** | `GET/PATCH /users/me`, `GET/DELETE /users/:id` (admin) | Profile incl. `plan` (free/pro) + `upiId` |
+| **Categories** | `GET /categories`, `POST/PATCH/DELETE` (admin) | Global, seeded, icon-first reference data |
+| **Expenses** | `…/expenses` CRUD + `GET /expenses/summary` | Includes **materialized group/friend shares** (`source=group_share`, read-only) |
+| **Income** | `…/income` CRUD + `GET /income/summary` | Per-category / per-source breakdowns |
+| **Groups** | `…/groups` CRUD + `…/:id/members` | Invite by phone → placeholders auto-link on registration |
+| **Splits** | `…/groups/:id/expenses`, `…/balances`, `…/settlements`, `…/settlements/intent` | 4 split strategies, debt simplification, UPI settle-up |
+| **Friends** | `…/friends` + `…/:id/expenses·settlements·settlements/intent` | 1-on-1 direct splits (a 2-person "direct" group, hidden from the groups list) |
+| **Budgets** | `…/budgets` CRUD | Live `spent`/`remaining`/`status` per period (incl. shares) |
+| **EMIs** | `…/emis` CRUD + `GET /emis/summary` | Schedules, monthly-commitment, due-this-month |
+| **Goals** | `…/goals` CRUD + `POST /goals/:id/contribute` | Progress + "save ₹X/month to finish on time" |
+| **Investments** | `…/investments` CRUD + `GET /investments/summary` | Gain/loss + allocation by asset class |
+| **Analytics** | `GET /analytics/overview`, `GET /analytics/cashflow` | Cross-module dashboard, savings rate, net worth |
+
+Cross-cutting seams (no public routes yet): **entitlements** (plan/feature gate,
+dormant via `ENTITLEMENTS_ENFORCED=false`) and **payments** (pluggable provider, UPI
+intent today). See [`docs/FRONTEND_PLAN.md`](docs/FRONTEND_PLAN.md) for the full API
+contract and an Expo / React Native + TanStack Query build plan.

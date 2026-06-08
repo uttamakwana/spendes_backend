@@ -1,6 +1,7 @@
 import type { NextFunction, Request, Response } from 'express';
 import { config } from '../../config';
 import { UnauthorizedException } from '../../common/errors/http-exception';
+import { PlanType } from '../../common/enums/plan-type';
 import { usersService } from '../users/users.service';
 import { jwtService, type JwtPayload } from './jwt.service';
 
@@ -39,6 +40,7 @@ export async function authenticate(
     req.user = {
       id: payload.sub,
       roles: payload.roles,
+      plan: user.plan ?? PlanType.Free,
       phoneNumber: user.phoneNumber,
       email: user.email,
     };

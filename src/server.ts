@@ -3,11 +3,20 @@ import { createApp } from './app';
 import { config } from './config';
 import { connectDatabase, disconnectDatabase } from './database/connection';
 import { logger } from './logger';
+import { seedCategories } from './modules/categories/categories.seed';
 import { redisService } from './redis/redis.service';
 
 /** Connects infrastructure, starts the HTTP server, and wires graceful shutdown. */
 async function bootstrap(): Promise<void> {
   await connectDatabase();
+
+  // Ensure the default system categories exist. Idempotent and non-fatal — a failure
+  // here should log but never block the API from starting.
+  try {
+    await seedCategories();
+  } catch (error) {
+    logger.error({ err: error }, 'Category seeding failed — continuing startup');
+  }
 
   const app = createApp();
 

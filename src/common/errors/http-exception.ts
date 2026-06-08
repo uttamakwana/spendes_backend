@@ -33,6 +33,12 @@ export class UnauthorizedException extends HttpException {
   }
 }
 
+export class PaymentRequiredException extends HttpException {
+  constructor(message = 'Upgrade required', errorCode = 'UPGRADE_REQUIRED') {
+    super(402, message, { errorCode });
+  }
+}
+
 export class ForbiddenException extends HttpException {
   constructor(message = 'Forbidden') {
     super(403, message, { errorCode: 'FORBIDDEN' });
@@ -80,6 +86,7 @@ function defaultErrorCode(status: number): string {
   const codes: Record<number, string> = {
     400: 'BAD_REQUEST',
     401: 'UNAUTHORIZED',
+    402: 'PAYMENT_REQUIRED',
     403: 'FORBIDDEN',
     404: 'NOT_FOUND',
     408: 'REQUEST_TIMEOUT',

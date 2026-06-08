@@ -5,6 +5,8 @@ import { createLogger } from '../../logger';
 import { toUserResponse, type UserResponse } from '../users/user-response';
 import type { UserDocument } from '../users/users.model';
 import { usersService, UsersService } from '../users/users.service';
+import { groupsService } from '../groups/groups.service';
+import { splitsService } from '../splits/splits.service';
 import { jwtService, JwtService, type JwtPayload } from './jwt.service';
 import { otpService, OtpService } from './otp/otp.service';
 import { phoneService, PhoneService } from './phone/phone.service';
@@ -70,6 +72,11 @@ export class AuthService {
       defaultCurrency: dto.defaultCurrency,
       isPhoneVerified: true,
     });
+
+    // Promote any group invites that were waiting on this phone number (non-fatal),
+    // then materialize their share of any pre-join group expenses into their expenses.
+    await groupsService.linkInvitesForUser(user);
+    await splitsService.backfillGroupShareExpenses(user);
 
     return this.buildAuthResponse(user);
   }

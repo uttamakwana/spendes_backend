@@ -22,6 +22,14 @@ export enum SmsProviderName {
   Msg91 = 'msg91',
 }
 
+/** Payment rails the app knows how to wire (only `upi_intent` is implemented today). */
+export enum PaymentProviderName {
+  /** UPI deep link (`upi://pay?…`) — no license, opens the payer's existing UPI app. */
+  UpiIntent = 'upi_intent',
+  Razorpay = 'razorpay',
+  Cashfree = 'cashfree',
+}
+
 /**
  * Parses common truthy string representations into a real boolean. Needed because
  * everything coming from `process.env` is a string.
@@ -94,6 +102,14 @@ const envSchema = z.object({
   // --- SMS gateway ---
   SMS_PROVIDER: z.nativeEnum(SmsProviderName).default(SmsProviderName.Console),
   SMS_FROM: z.string().default('Spendes'),
+
+  // --- Payments (settle-up rail) ---
+  PAYMENT_PROVIDER: z.nativeEnum(PaymentProviderName).default(PaymentProviderName.UpiIntent),
+
+  // --- Monetization / entitlements ---
+  // Keep OFF through the MVP: every plan gets every feature. Flip to true when the
+  // Pro tier + billing ship to turn paid gating on (no code changes needed).
+  ENTITLEMENTS_ENFORCED: booleanFromString(false),
 
   // --- Phone numbering ---
   PHONE_DEFAULT_DIAL_CODE: z.string().default('+91'),

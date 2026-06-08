@@ -1,6 +1,6 @@
-import { env, Environment, SmsProviderName } from './env';
+import { env, Environment, SmsProviderName, PaymentProviderName } from './env';
 
-export { Environment, SmsProviderName } from './env';
+export { Environment, SmsProviderName, PaymentProviderName } from './env';
 
 /**
  * Splits a comma-separated env value into a list, or returns the literal `*`
@@ -71,6 +71,15 @@ export interface SmsConfig {
   from: string;
 }
 
+export interface PaymentsConfig {
+  provider: PaymentProviderName;
+}
+
+export interface EntitlementsConfig {
+  /** When false (the MVP default), plan gating is a pass-through — everything is free. */
+  enforced: boolean;
+}
+
 export interface PhoneConfig {
   defaultDialCode: string;
   allowedDialCodes: string[] | string;
@@ -95,6 +104,8 @@ export interface AppConfiguration {
   security: SecurityConfig;
   otp: OtpConfig;
   sms: SmsConfig;
+  payments: PaymentsConfig;
+  entitlements: EntitlementsConfig;
   phone: PhoneConfig;
   throttle: ThrottleConfig;
   swagger: SwaggerConfig;
@@ -146,6 +157,12 @@ export const config: AppConfiguration = {
   sms: {
     provider: env.SMS_PROVIDER,
     from: env.SMS_FROM,
+  },
+  payments: {
+    provider: env.PAYMENT_PROVIDER,
+  },
+  entitlements: {
+    enforced: env.ENTITLEMENTS_ENFORCED,
   },
   phone: {
     defaultDialCode: env.PHONE_DEFAULT_DIAL_CODE,
