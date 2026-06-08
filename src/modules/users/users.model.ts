@@ -1,5 +1,6 @@
 import { model, Schema, type Types } from 'mongoose';
 import { Role } from '../../common/enums/role';
+import { PlanType } from '../../common/enums/plan-type';
 import type { BaseDocument } from '../../database/base.repository';
 
 /**
@@ -18,6 +19,10 @@ export interface UserDocument extends BaseDocument {
   lastName: string;
   avatarUrl?: string;
   roles: Role[];
+  /** Subscription tier. Defaults to `free`; paid gating stays off until Pro ships. */
+  plan: PlanType;
+  /** Optional UPI VPA (e.g. `name@bank`) so others can pay this user via a UPI intent. */
+  upiId?: string;
   defaultCurrency: string;
   isPhoneVerified: boolean;
   isEmailVerified: boolean;
@@ -38,6 +43,8 @@ const userSchema = new Schema<UserDocument>(
     lastName: { type: String, required: true, trim: true },
     avatarUrl: { type: String },
     roles: { type: [String], enum: Object.values(Role), default: [Role.User] },
+    plan: { type: String, enum: Object.values(PlanType), default: PlanType.Free },
+    upiId: { type: String, trim: true },
     defaultCurrency: { type: String, default: 'INR', uppercase: true, trim: true },
     isPhoneVerified: { type: Boolean, default: false },
     isEmailVerified: { type: Boolean, default: false },

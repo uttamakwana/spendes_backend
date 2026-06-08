@@ -1,4 +1,5 @@
 import type { Role } from '../../common/enums/role';
+import { PlanType } from '../../common/enums/plan-type';
 import type { UserDocument } from './users.model';
 
 /**
@@ -17,6 +18,8 @@ export interface UserResponse {
   fullName: string;
   avatarUrl?: string;
   roles: Role[];
+  plan: PlanType;
+  upiId?: string;
   defaultCurrency: string;
   isPhoneVerified: boolean;
   isEmailVerified: boolean;
@@ -39,6 +42,8 @@ export function toUserResponse(user: UserDocument): UserResponse {
     fullName: `${user.firstName} ${user.lastName}`.trim(),
     avatarUrl: user.avatarUrl,
     roles: user.roles,
+    plan: user.plan ?? PlanType.Free,
+    upiId: user.upiId,
     defaultCurrency: user.defaultCurrency,
     isPhoneVerified: user.isPhoneVerified,
     isEmailVerified: user.isEmailVerified,

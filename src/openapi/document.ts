@@ -6,6 +6,7 @@ import {
 import { z } from 'zod';
 import { config } from '../config';
 import { Role } from '../common/enums/role';
+import { PlanType } from '../common/enums/plan-type';
 import {
   loginSchema,
   refreshTokenSchema,
@@ -30,6 +31,15 @@ import {
   listCategoriesQuerySchema,
   updateCategorySchema,
 } from '../modules/categories/categories.validation';
+import {
+  createGroupSchema,
+  listGroupsQuerySchema,
+  memberInviteSchema,
+  memberParamsSchema,
+  updateGroupSchema,
+  updateMemberSchema,
+} from '../modules/groups/groups.validation';
+import { GroupMemberStatus, GroupRole } from '../modules/groups/groups.enums';
 import { PaymentMethod } from '../common/enums/payment-method';
 import { CategoryType } from '../common/enums/category-type';
 import { paginationQuerySchema } from '../common/utils/pagination';
@@ -52,6 +62,8 @@ const userResponseSchema = z
     fullName: z.string(),
     avatarUrl: z.string().optional(),
     roles: z.array(z.nativeEnum(Role)),
+    plan: z.nativeEnum(PlanType),
+    upiId: z.string().optional(),
     defaultCurrency: z.string(),
     isPhoneVerified: z.boolean(),
     isEmailVerified: z.boolean(),
@@ -170,6 +182,38 @@ const categoryResponseSchema = z
     updatedAt: z.string(),
   })
   .openapi('CategoryResponse');
+
+const groupMemberResponseSchema = z
+  .object({
+    id: z.string(),
+    userId: z.string().optional(),
+    displayName: z.string(),
+    role: z.nativeEnum(GroupRole),
+    status: z.nativeEnum(GroupMemberStatus),
+    dialCode: z.string().optional(),
+    phoneNumber: z.string().optional(),
+    isYou: z.boolean(),
+    isRegistered: z.boolean(),
+    joinedAt: z.string(),
+  })
+  .openapi('GroupMemberResponse');
+
+const groupResponseSchema = z
+  .object({
+    id: z.string(),
+    name: z.string(),
+    description: z.string().optional(),
+    avatarUrl: z.string().optional(),
+    currency: z.string(),
+    createdBy: z.string(),
+    members: z.array(groupMemberResponseSchema),
+    memberCount: z.number(),
+    myRole: z.nativeEnum(GroupRole).optional(),
+    isActive: z.boolean(),
+    createdAt: z.string(),
+    updatedAt: z.string(),
+  })
+  .openapi('GroupResponse');
 
 const pageMetaSchema = z.object({
   page: z.number(),
@@ -606,6 +650,134 @@ export function buildOpenApiDocument(): ReturnType<OpenApiGeneratorV3['generateD
     responses: {
       204: { description: 'Deleted' },
       404: { description: 'Not found', ...jsonContent(errorResponseSchema) },
+    },
+  });
+
+  // --- Groups ---
+  registry.registerPath({
+    method: 'post',
+    path: '/groups',
+    summary: 'Create a group (caller becomes its first admin)',
+    tags: ['Groups'],
+    security: bearer,
+    request: { body: jsonContent(createGroupSchema) },
+    responses: {
+      201: { description: 'Group created', ...jsonContent(success(groupResponseSchema)) },
+      400: { description: 'Validation failed', ...jsonContent(errorResponseSchema) },
+      401: { description: 'Unauthorized', ...jsonContent(errorResponseSchema) },
+    },
+  });
+
+  registry.registerPath({
+    method: 'get',
+    path: '/groups',
+    summary: 'List the groups the caller belongs to (paginated)',
+    tags: ['Groups'],
+    security: bearer,
+    request: { query: listGroupsQuerySchema },
+    responses: {
+      200: {
+        description: 'Paginated groups',
+        ...jsonContent(
+          success(z.object({ items: z.array(groupResponseSchema), meta: pageMetaSchema })),
+        ),
+      },
+      401: { description: 'Unauthorized', ...jsonContent(errorResponseSchema) },
+    },
+  });
+
+  registry.registerPath({
+    method: 'get',
+    path: '/groups/{id}',
+    summary: 'Get a group by id (members only)',
+    tags: ['Groups'],
+    security: bearer,
+    request: { params: idParamSchema },
+    responses: {
+      200: { description: 'Group', ...jsonContent(success(groupResponseSchema)) },
+      404: { description: 'Not found or not a member', ...jsonContent(errorResponseSchema) },
+    },
+  });
+
+  registry.registerPath({
+    method: 'patch',
+    path: '/groups/{id}',
+    summary: 'Update group details (admin only)',
+    tags: ['Groups'],
+    security: bearer,
+    request: { params: idParamSchema, body: jsonContent(updateGroupSchema) },
+    responses: {
+      200: { description: 'Updated group', ...jsonContent(success(groupResponseSchema)) },
+      403: { description: 'Not a group admin', ...jsonContent(errorResponseSchema) },
+      404: { description: 'Not found or not a member', ...jsonContent(errorResponseSchema) },
+    },
+  });
+
+  registry.registerPath({
+    method: 'delete',
+    path: '/groups/{id}',
+    summary: 'Archive a group (admin only)',
+    tags: ['Groups'],
+    security: bearer,
+    request: { params: idParamSchema },
+    responses: {
+      204: { description: 'Archived' },
+      403: { description: 'Not a group admin', ...jsonContent(errorResponseSchema) },
+      404: { description: 'Not found or not a member', ...jsonContent(errorResponseSchema) },
+    },
+  });
+
+  registry.registerPath({
+    method: 'post',
+    path: '/groups/{id}/members',
+    summary: 'Add a member by userId or phone (admin only); unknown phones become invites',
+    tags: ['Groups'],
+    security: bearer,
+    request: { params: idParamSchema, body: jsonContent(memberInviteSchema) },
+    responses: {
+      201: { description: 'Member added', ...jsonContent(success(groupResponseSchema)) },
+      403: { description: 'Not a group admin', ...jsonContent(errorResponseSchema) },
+      404: { description: 'Group or user not found', ...jsonContent(errorResponseSchema) },
+      409: { description: 'Already a member', ...jsonContent(errorResponseSchema) },
+    },
+  });
+
+  registry.registerPath({
+    method: 'patch',
+    path: '/groups/{id}/members/{memberId}',
+    summary: "Change a member's role (admin only)",
+    tags: ['Groups'],
+    security: bearer,
+    request: { params: memberParamsSchema, body: jsonContent(updateMemberSchema) },
+    responses: {
+      200: { description: 'Member updated', ...jsonContent(success(groupResponseSchema)) },
+      400: {
+        description: 'Would leave the group without an admin',
+        ...jsonContent(errorResponseSchema),
+      },
+      403: { description: 'Not a group admin', ...jsonContent(errorResponseSchema) },
+      404: { description: 'Group or member not found', ...jsonContent(errorResponseSchema) },
+    },
+  });
+
+  registry.registerPath({
+    method: 'delete',
+    path: '/groups/{id}/members/{memberId}',
+    summary: 'Remove a member (admin), or leave the group (self)',
+    tags: ['Groups'],
+    security: bearer,
+    request: { params: memberParamsSchema },
+    responses: {
+      200: { description: 'Member removed', ...jsonContent(success(groupResponseSchema)) },
+      400: {
+        description: 'Would leave the group without an admin',
+        ...jsonContent(errorResponseSchema),
+      },
+      403: {
+        description: 'Not allowed to remove this member',
+        ...jsonContent(errorResponseSchema),
+      },
+      404: { description: 'Group or member not found', ...jsonContent(errorResponseSchema) },
     },
   });
 

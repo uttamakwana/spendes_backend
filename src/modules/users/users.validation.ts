@@ -27,6 +27,15 @@ export const updateUserSchema = z
     email: z.string().email(),
     avatarUrl: z.string().url(),
     defaultCurrency: z.string().length(3),
+    // UPI VPA (e.g. `name@okhdfcbank`) used as the payee for settle-up UPI intents.
+    // `plan` is intentionally NOT editable here — tier changes go through billing/admin.
+    upiId: z
+      .string()
+      .trim()
+      .regex(
+        /^[a-zA-Z0-9.\-_]{2,256}@[a-zA-Z]{2,64}$/,
+        'upiId must be a valid UPI id like name@bank',
+      ),
   })
   .partial();
 
