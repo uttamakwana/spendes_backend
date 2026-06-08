@@ -12,8 +12,10 @@ const toAmount = (value: number): number => Math.round(value * 100) / 100;
  * until a webhook-capable aggregator is wired in.
  *
  * Params are percent-encoded (spaces become `%20`, not `+`) for maximum UPI-app
- * compatibility. Spec keys used: `pa` payee VPA, `pn` payee name, `am` amount,
- * `cu` currency, `tn` note, `tr` transaction reference.
+ * compatibility. The one exception is the VPA's `@`, which is kept literal in `pa`
+ * (`name@bank`) — the form every UPI app and PSP generates, avoiding any decode
+ * quirks. Spec keys used: `pa` payee VPA, `pn` payee name, `am` amount, `cu`
+ * currency, `tn` note, `tr` transaction reference.
  */
 export class UpiIntentProvider implements PaymentProvider {
   readonly name = 'upi_intent';
@@ -32,8 +34,11 @@ export class UpiIntentProvider implements PaymentProvider {
     const amount = toAmount(request.amount);
 
     const enc = encodeURIComponent;
+    // Keep the VPA's `@` literal (every UPI app/PSP expects `pa=name@bank`); any
+    // other unexpected character is still percent-encoded for safety.
+    const encVpa = (vpa: string): string => enc(vpa).replace(/%40/g, '@');
     const params = [
-      `pa=${enc(payeeVpa)}`,
+      `pa=${encVpa(payeeVpa)}`,
       `pn=${enc(payeeName || payeeVpa)}`,
       `am=${amount.toFixed(2)}`,
       `cu=${enc(currency)}`,

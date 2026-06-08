@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { PaymentMethod } from '../../common/enums/payment-method';
+import { ExpenseSource } from '../../common/enums/expense-source';
 import { paginationQuerySchema } from '../../common/utils/pagination';
 
 /**
@@ -43,6 +44,7 @@ export type UpdateExpenseInput = z.infer<typeof updateExpenseSchema>;
 export const listExpensesQuerySchema = paginationQuerySchema.extend({
   category: z.string().trim().min(1).optional(),
   paymentMethod: z.nativeEnum(PaymentMethod).optional(),
+  source: z.nativeEnum(ExpenseSource).optional(),
   from: z.coerce.date().optional(),
   to: z.coerce.date().optional(),
   minAmount: z.coerce.number().nonnegative().optional(),

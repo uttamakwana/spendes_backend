@@ -1,6 +1,6 @@
 import { type FilterQuery, Types } from 'mongoose';
 import { BaseRepository } from '../../database/base.repository';
-import { GroupMemberStatus } from './groups.enums';
+import { GroupKind, GroupMemberStatus } from './groups.enums';
 import { GroupModel, type GroupDocument } from './groups.model';
 
 /**
@@ -31,6 +31,44 @@ export class GroupsRepository extends BaseRepository<GroupDocument> {
     return this.findOneOrThrow({
       _id: groupId,
       ...this.buildMemberFilter(userId),
+    } as FilterQuery<GroupDocument>);
+  }
+
+  /** Every active 1-on-1 friendship (direct group) the user belongs to. */
+  findDirectForUser(userId: string): Promise<GroupDocument[]> {
+    return this.find({
+      kind: GroupKind.Direct,
+      ...this.buildMemberFilter(userId),
+    } as FilterQuery<GroupDocument>);
+  }
+
+  /**
+   * Finds the existing direct friendship between `userId` and `friend` (matched by
+   * linked account, or by phone for an unregistered placeholder), or null. Used to
+   * de-duplicate so adding the same friend twice reuses the one friendship.
+   */
+  findDirectBetween(
+    userId: string,
+    friend: { userId?: Types.ObjectId; dialCode?: string; phoneNumber?: string },
+  ): Promise<GroupDocument | null> {
+    const friendMatch = friend.userId
+      ? { userId: friend.userId, status: { $ne: GroupMemberStatus.Removed } }
+      : { dialCode: friend.dialCode, phoneNumber: friend.phoneNumber, userId: { $exists: false } };
+
+    return this.findOne({
+      kind: GroupKind.Direct,
+      isActive: true,
+      $and: [
+        {
+          members: {
+            $elemMatch: {
+              userId: new Types.ObjectId(userId),
+              status: { $ne: GroupMemberStatus.Removed },
+            },
+          },
+        },
+        { members: { $elemMatch: friendMatch } },
+      ],
     } as FilterQuery<GroupDocument>);
   }
 

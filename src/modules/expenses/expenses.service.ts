@@ -1,5 +1,7 @@
 import { type FilterQuery, Types, type UpdateQuery } from 'mongoose';
 import { PaymentMethod } from '../../common/enums/payment-method';
+import { ExpenseSource } from '../../common/enums/expense-source';
+import { BadRequestException } from '../../common/errors/http-exception';
 import { buildSort } from '../../common/utils/pagination';
 import { paginate } from '../../common/utils/response';
 import type { PaginatedData } from '../../common/types/api-response';
@@ -17,6 +19,19 @@ import type {
 
 /** Money is stored to 2 decimal places — round once, at the boundary. */
 const toAmount = (value: number): number => Math.round(value * 100) / 100;
+
+/** Input for materializing a member's share of a group expense into their expenses. */
+export interface GroupShareExpenseInput {
+  userId: string;
+  amount: number;
+  currency: string;
+  category: string;
+  description?: string;
+  notes?: string;
+  spentAt: Date;
+  groupId: string;
+  groupExpenseId: string;
+}
 
 /** A spend bucket keyed by some dimension (category, payment method). */
 interface SpendBucket {
@@ -75,6 +90,9 @@ export class ExpensesService {
     if (query.paymentMethod) {
       filter.paymentMethod = query.paymentMethod;
     }
+    if (query.source) {
+      filter.source = query.source;
+    }
     if (query.from || query.to) {
       filter.spentAt = {
         ...(query.from ? { $gte: query.from } : {}),
@@ -118,6 +136,9 @@ export class ExpensesService {
   }
 
   async update(userId: string, id: string, dto: UpdateExpenseInput): Promise<ExpenseResponse> {
+    const existing = await this.repository.findOwnedByIdOrThrow(id, userId);
+    this.assertDirectlyEditable(existing);
+
     const update: UpdateQuery<ExpenseDocument> = { ...dto };
     if (dto.amount !== undefined) {
       update.amount = toAmount(dto.amount);
@@ -131,7 +152,67 @@ export class ExpensesService {
   }
 
   async remove(userId: string, id: string): Promise<void> {
+    const existing = await this.repository.findOwnedByIdOrThrow(id, userId);
+    this.assertDirectlyEditable(existing);
     await this.repository.deleteOwned(id, userId);
+  }
+
+  // ---------------------------------------------------------------------------
+  // Group-share materialization (called by the splits module — see SplitsService)
+  // ---------------------------------------------------------------------------
+
+  /** Creates the personal "your share" row for a member of a group expense. */
+  async createGroupShareExpense(input: GroupShareExpenseInput): Promise<void> {
+    await this.repository.create({
+      userId: new Types.ObjectId(input.userId),
+      amount: toAmount(input.amount),
+      currency: input.currency,
+      category: input.category,
+      description: input.description,
+      paymentMethod: PaymentMethod.Other,
+      spentAt: input.spentAt,
+      notes: input.notes,
+      tags: [],
+      source: ExpenseSource.GroupShare,
+      groupId: new Types.ObjectId(input.groupId),
+      groupExpenseId: new Types.ObjectId(input.groupExpenseId),
+    });
+  }
+
+  /** Propagates metadata edits from a group expense to every member's share row. */
+  async syncGroupShareExpenses(
+    groupExpenseId: string,
+    fields: { description?: string; category?: string; spentAt?: Date; notes?: string },
+  ): Promise<void> {
+    await this.repository.updateByGroupExpense(groupExpenseId, fields);
+  }
+
+  /** Removes all share rows for a deleted group expense. */
+  async removeGroupShareExpenses(groupExpenseId: string): Promise<void> {
+    await this.repository.deleteByGroupExpense(groupExpenseId);
+  }
+
+  /** Whether a user already has a share row for a group expense (dedup for backfill). */
+  hasGroupShareExpense(userId: string, groupExpenseId: string): Promise<boolean> {
+    return this.repository.existsGroupShare(userId, groupExpenseId);
+  }
+
+  /** Total spend for a user within a date window (optionally one category). Used by budgets. */
+  sumForPeriod(
+    userId: string,
+    range: { from: Date; to: Date },
+    category?: string,
+  ): Promise<number> {
+    return this.repository.sumAmount(userId, range, category);
+  }
+
+  /** Group-share rows are owned by their group expense; they can't be edited/deleted here. */
+  private assertDirectlyEditable(expense: ExpenseDocument): void {
+    if (expense.source === ExpenseSource.GroupShare) {
+      throw new BadRequestException(
+        'This is your share of a group expense — edit or delete it from the group instead.',
+      );
+    }
   }
 
   async summary(userId: string, query: ExpenseSummaryQuery): Promise<ExpenseSummary> {

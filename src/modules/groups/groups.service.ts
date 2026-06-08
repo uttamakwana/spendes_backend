@@ -12,7 +12,7 @@ import { createLogger } from '../../logger';
 import { phoneService } from '../auth/phone/phone.service';
 import { usersService } from '../users/users.service';
 import type { UserDocument } from '../users/users.model';
-import { GroupMemberStatus, GroupRole } from './groups.enums';
+import { GroupKind, GroupMemberStatus, GroupRole } from './groups.enums';
 import { toGroupResponse, type GroupResponse } from './group-response';
 import type { GroupDocument, GroupMember } from './groups.model';
 import { groupsRepository, GroupsRepository } from './groups.repository';
@@ -66,7 +66,8 @@ export class GroupsService {
 
   async findAll(userId: string, query: ListGroupsQuery): Promise<PaginatedData<GroupResponse>> {
     const result = await this.repository.paginate({
-      filter: this.repository.buildMemberFilter(userId),
+      // Exclude 1-on-1 direct friendships ($ne also matches legacy docs without `kind`).
+      filter: { ...this.repository.buildMemberFilter(userId), kind: { $ne: GroupKind.Direct } },
       page: query.page,
       limit: query.limit,
       sort: buildSort(query) ?? { updatedAt: -1 },
@@ -105,6 +106,9 @@ export class GroupsService {
 
   async addMember(userId: string, groupId: string, dto: MemberInviteInput): Promise<GroupResponse> {
     const group = await this.repository.findForMemberOrThrow(groupId, userId);
+    if (group.kind === GroupKind.Direct) {
+      throw new BadRequestException('You cannot add members to a 1-on-1 friendship');
+    }
     this.assertAdmin(group, userId);
 
     const member = await this.resolveInvitee(dto);
@@ -200,6 +204,46 @@ export class GroupsService {
         `Failed to link group invites for ${user._id.toString()}: ${(error as Error).message}`,
       );
     }
+  }
+
+  /**
+   * Finds the existing 1-on-1 friendship (direct group) between the caller and the
+   * invited person, or creates one. Reuses the group machinery so direct splits get
+   * the full splits engine. Used by the friends module — see FriendsService.
+   */
+  async findOrCreateDirect(
+    userId: string,
+    invite: MemberInviteInput,
+  ): Promise<{ group: GroupDocument; created: boolean }> {
+    const creator = await usersService.findEntityById(userId);
+    if (!creator) {
+      throw new NotFoundException('User not found');
+    }
+
+    const friend = await this.resolveInvitee(invite);
+    if (friend.userId && friend.userId.toString() === userId) {
+      throw new BadRequestException('You cannot add yourself as a friend');
+    }
+
+    const existing = await this.repository.findDirectBetween(userId, {
+      userId: friend.userId,
+      dialCode: friend.dialCode,
+      phoneNumber: friend.phoneNumber,
+    });
+    if (existing) {
+      return { group: existing, created: false };
+    }
+
+    const group = await this.repository.create({
+      name: friend.displayName,
+      currency: creator.defaultCurrency ?? 'INR',
+      kind: GroupKind.Direct,
+      createdBy: creator._id,
+      members: [this.buildCreatorMember(creator), friend],
+      isActive: true,
+    });
+    this.logger.info(`Direct friendship created: ${group._id.toString()} by user ${userId}`);
+    return { group, created: true };
   }
 
   // ---------------------------------------------------------------------------

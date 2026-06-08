@@ -1,4 +1,5 @@
 import type { PaymentMethod } from '../../common/enums/payment-method';
+import type { ExpenseSource } from '../../common/enums/expense-source';
 import type { ExpenseDocument } from './expenses.model';
 
 /**
@@ -19,6 +20,9 @@ export interface ExpenseResponse {
   notes?: string;
   tags: string[];
   receiptUrl?: string;
+  source: ExpenseSource;
+  groupId?: string;
+  groupExpenseId?: string;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -38,6 +42,9 @@ export function toExpenseResponse(expense: ExpenseDocument): ExpenseResponse {
     notes: expense.notes,
     tags: expense.tags ?? [],
     receiptUrl: expense.receiptUrl,
+    source: expense.source,
+    groupId: expense.groupId?.toString(),
+    groupExpenseId: expense.groupExpenseId?.toString(),
     createdAt: expense.createdAt,
     updatedAt: expense.updatedAt,
   };

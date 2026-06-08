@@ -44,6 +44,57 @@ export class ExpensesRepository extends BaseRepository<ExpenseDocument> {
     return this.deleteOne({ _id: id, userId } as FilterQuery<ExpenseDocument>);
   }
 
+  /** Removes every materialized group-share row for a group expense. Returns the count removed. */
+  async deleteByGroupExpense(groupExpenseId: string): Promise<number> {
+    const result = await this.model
+      .deleteMany({ groupExpenseId: new Types.ObjectId(groupExpenseId) })
+      .exec();
+    return result.deletedCount ?? 0;
+  }
+
+  /** Propagates metadata changes to every materialized group-share row for a group expense. */
+  async updateByGroupExpense(
+    groupExpenseId: string,
+    fields: UpdateQuery<ExpenseDocument>,
+  ): Promise<number> {
+    const result = await this.model
+      .updateMany({ groupExpenseId: new Types.ObjectId(groupExpenseId) }, { $set: fields })
+      .exec();
+    return result.modifiedCount ?? 0;
+  }
+
+  /** Whether a user already has a materialized share row for a given group expense (dedup for backfill). */
+  existsGroupShare(userId: string, groupExpenseId: string): Promise<boolean> {
+    return this.exists({
+      userId: new Types.ObjectId(userId),
+      groupExpenseId: new Types.ObjectId(groupExpenseId),
+    } as FilterQuery<ExpenseDocument>);
+  }
+
+  /**
+   * Total expense amount for a user within an inclusive `spentAt` window, optionally
+   * scoped to one category. Includes materialized group/friend shares, so a budget's
+   * "spent" reflects shared spending too. Used by the budgets module.
+   */
+  async sumAmount(
+    userId: string,
+    range: { from: Date; to: Date },
+    category?: string,
+  ): Promise<number> {
+    const match: FilterQuery<ExpenseDocument> = {
+      userId: new Types.ObjectId(userId),
+      spentAt: { $gte: range.from, $lte: range.to },
+    };
+    if (category) {
+      match.category = category;
+    }
+    const [result] = await this.aggregate<{ total: number }>([
+      { $match: match },
+      { $group: { _id: null, total: { $sum: '$amount' } } },
+    ]);
+    return result?.total ?? 0;
+  }
+
   /**
    * Rolls up a user's spend over an optional date window into overall totals plus
    * per-category and per-payment-method breakdowns, in a single round trip.
@@ -83,6 +134,29 @@ export class ExpensesRepository extends BaseRepository<ExpenseDocument> {
     ]);
 
     return result ?? { overall: [], byCategory: [], byPaymentMethod: [] };
+  }
+
+  /** Per-(year,month) expense totals within a window — for the analytics cash-flow trend. */
+  async monthlyTotals(
+    userId: string,
+    range: { from: Date; to: Date },
+  ): Promise<{ year: number; month: number; total: number }[]> {
+    const rows = await this.aggregate<{ _id: { year: number; month: number }; total: number }>([
+      {
+        $match: {
+          userId: new Types.ObjectId(userId),
+          spentAt: { $gte: range.from, $lte: range.to },
+        },
+      },
+      {
+        $group: {
+          _id: { year: { $year: '$spentAt' }, month: { $month: '$spentAt' } },
+          total: { $sum: '$amount' },
+        },
+      },
+      { $sort: { '_id.year': 1, '_id.month': 1 } },
+    ]);
+    return rows.map((r) => ({ year: r._id.year, month: r._id.month, total: r.total }));
   }
 }
 

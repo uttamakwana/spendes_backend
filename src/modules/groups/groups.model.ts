@@ -1,6 +1,6 @@
 import { model, Schema, type Types } from 'mongoose';
 import type { BaseDocument } from '../../database/base.repository';
-import { GroupMemberStatus, GroupRole } from './groups.enums';
+import { GroupKind, GroupMemberStatus, GroupRole } from './groups.enums';
 
 /**
  * One membership inside a group, stored as an embedded subdocument with its own
@@ -34,6 +34,8 @@ export interface GroupDocument extends BaseDocument {
   description?: string;
   avatarUrl?: string;
   currency: string;
+  /** Normal group vs. a 1-on-1 direct friendship (hidden from the groups list). */
+  kind: GroupKind;
   createdBy: Types.ObjectId;
   members: GroupMember[];
   isActive: boolean;
@@ -64,6 +66,7 @@ const groupSchema = new Schema<GroupDocument>(
     description: { type: String, trim: true },
     avatarUrl: { type: String, trim: true },
     currency: { type: String, required: true, uppercase: true, trim: true, default: 'INR' },
+    kind: { type: String, enum: Object.values(GroupKind), default: GroupKind.Standard },
     createdBy: { type: Schema.Types.ObjectId, ref: 'User', required: true, index: true },
     members: { type: [groupMemberSchema], default: [] },
     isActive: { type: Boolean, default: true },

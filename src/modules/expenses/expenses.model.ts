@@ -1,5 +1,6 @@
 import { model, Schema, type Types } from 'mongoose';
 import { PaymentMethod } from '../../common/enums/payment-method';
+import { ExpenseSource } from '../../common/enums/expense-source';
 import type { BaseDocument } from '../../database/base.repository';
 
 /**
@@ -28,6 +29,11 @@ export interface ExpenseDocument extends BaseDocument {
   notes?: string;
   tags: string[];
   receiptUrl?: string;
+  /** Whether this was entered directly or materialized from a group split. */
+  source: ExpenseSource;
+  /** Set when `source` is `GroupShare`: the group + group expense it derives from. */
+  groupId?: Types.ObjectId;
+  groupExpenseId?: Types.ObjectId;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -49,6 +55,13 @@ const expenseSchema = new Schema<ExpenseDocument>(
     notes: { type: String, trim: true },
     tags: { type: [String], default: [] },
     receiptUrl: { type: String, trim: true },
+    source: {
+      type: String,
+      enum: Object.values(ExpenseSource),
+      default: ExpenseSource.Personal,
+    },
+    groupId: { type: Schema.Types.ObjectId, ref: 'Group' },
+    groupExpenseId: { type: Schema.Types.ObjectId, ref: 'GroupExpense' },
   },
   { timestamps: true, collection: 'expenses' },
 );
@@ -58,5 +71,8 @@ expenseSchema.index({ userId: 1, spentAt: -1 });
 
 // Category-wise analysis for a user (breakdowns, filtered lists).
 expenseSchema.index({ userId: 1, category: 1 });
+
+// Sync/cleanup of materialized group-share rows when a group expense changes.
+expenseSchema.index({ groupExpenseId: 1 });
 
 export const ExpenseModel = model<ExpenseDocument>('Expense', expenseSchema);

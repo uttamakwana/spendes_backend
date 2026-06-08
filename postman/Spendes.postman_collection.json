@@ -1,0 +1,1568 @@
+{
+  "info": {
+    "_postman_id": "b1e6a0c2-5d3f-4a2b-9c10-spendes000001",
+    "name": "Spendes API",
+    "description": "Full API collection for the Spendes backend (Express + MongoDB).\n\n## Quick start\n1. Run the backend: `npm run start:dev` (boots at http://localhost:3000/api/v1).\n2. Keep `OTP_MOCK_ENABLED=true` (the default) so every OTP is `123456`.\n3. In **Auth**, run **Request OTP** then **Register** (or **Login** if the number already exists). Register/Login auto-save `accessToken` + `refreshToken` into collection variables, and every other request inherits Bearer auth automatically.\n4. In **Groups**, run **Create Group** — it auto-saves `groupId` plus `memberId1`/`memberId2`/`memberId3` for the split requests.\n5. Then try **Splits** (group expenses → balances → settlement intent).\n\n## Notes\n- Edit the `baseUrl` and `phoneNumber` variables under the collection's **Variables** tab.\n- Admin-only endpoints (list users, manage categories) need a user whose `roles` include `admin` — promote one in Mongo, then re-login.\n- **Settlement intent** requires the *payee* to be a registered user with a `upiId` set (via Update My Profile); paying a phone-only placeholder returns 400 by design.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "auth": {
+    "type": "bearer",
+    "bearer": [{ "key": "token", "value": "{{accessToken}}", "type": "string" }]
+  },
+  "variable": [
+    { "key": "baseUrl", "value": "http://localhost:3000/api/v1" },
+    { "key": "dialCode", "value": "+91" },
+    { "key": "phoneNumber", "value": "9876543210" },
+    { "key": "otp", "value": "123456" },
+    { "key": "accessToken", "value": "" },
+    { "key": "refreshToken", "value": "" },
+    { "key": "userId", "value": "" },
+    { "key": "categoryId", "value": "" },
+    { "key": "expenseId", "value": "" },
+    { "key": "incomeId", "value": "" },
+    { "key": "groupId", "value": "" },
+    { "key": "memberId", "value": "" },
+    { "key": "memberId1", "value": "" },
+    { "key": "memberId2", "value": "" },
+    { "key": "memberId3", "value": "" },
+    { "key": "groupExpenseId", "value": "" },
+    { "key": "settlementId", "value": "" },
+    { "key": "friendshipId", "value": "" },
+    { "key": "fMyMemberId", "value": "" },
+    { "key": "fFriendMemberId", "value": "" },
+    { "key": "budgetId", "value": "" },
+    { "key": "emiId", "value": "" },
+    { "key": "goalId", "value": "" },
+    { "key": "investmentId", "value": "" }
+  ],
+  "item": [
+    {
+      "name": "Auth",
+      "item": [
+        {
+          "name": "Request OTP",
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"dialCode\": \"{{dialCode}}\",\n  \"phoneNumber\": \"{{phoneNumber}}\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/auth/otp/request",
+              "host": ["{{baseUrl}}"],
+              "path": ["auth", "otp", "request"]
+            },
+            "description": "Sends an OTP. In dev (OTP_MOCK_ENABLED=true) the code is always 123456 and is logged, not sent. The response `isRegistered` tells you whether to Register or Login."
+          }
+        },
+        {
+          "name": "Register",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const res = pm.response.json();",
+                  "if (res && res.data) {",
+                  "  if (res.data.tokens) {",
+                  "    pm.collectionVariables.set('accessToken', res.data.tokens.accessToken);",
+                  "    pm.collectionVariables.set('refreshToken', res.data.tokens.refreshToken);",
+                  "  }",
+                  "  if (res.data.user) pm.collectionVariables.set('userId', res.data.user.id);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"dialCode\": \"{{dialCode}}\",\n  \"phoneNumber\": \"{{phoneNumber}}\",\n  \"firstName\": \"Test\",\n  \"lastName\": \"User\",\n  \"email\": \"test.user@example.com\",\n  \"defaultCurrency\": \"INR\",\n  \"otp\": \"{{otp}}\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/auth/register",
+              "host": ["{{baseUrl}}"],
+              "path": ["auth", "register"]
+            },
+            "description": "Creates an account and returns tokens. Saves accessToken/refreshToken/userId to collection variables."
+          }
+        },
+        {
+          "name": "Login",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const res = pm.response.json();",
+                  "if (res && res.data) {",
+                  "  if (res.data.tokens) {",
+                  "    pm.collectionVariables.set('accessToken', res.data.tokens.accessToken);",
+                  "    pm.collectionVariables.set('refreshToken', res.data.tokens.refreshToken);",
+                  "  }",
+                  "  if (res.data.user) pm.collectionVariables.set('userId', res.data.user.id);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"dialCode\": \"{{dialCode}}\",\n  \"phoneNumber\": \"{{phoneNumber}}\",\n  \"otp\": \"{{otp}}\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/auth/login",
+              "host": ["{{baseUrl}}"],
+              "path": ["auth", "login"]
+            },
+            "description": "Logs in an existing account (request the OTP first). Saves tokens + userId."
+          }
+        },
+        {
+          "name": "Refresh Token",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const res = pm.response.json();",
+                  "if (res && res.data && res.data.accessToken) {",
+                  "  pm.collectionVariables.set('accessToken', res.data.accessToken);",
+                  "  pm.collectionVariables.set('refreshToken', res.data.refreshToken);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"refreshToken\": \"{{refreshToken}}\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/auth/refresh",
+              "host": ["{{baseUrl}}"],
+              "path": ["auth", "refresh"]
+            }
+          }
+        },
+        {
+          "name": "Logout",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/auth/logout",
+              "host": ["{{baseUrl}}"],
+              "path": ["auth", "logout"]
+            },
+            "description": "Revokes the current refresh token (Bearer required)."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Users",
+      "item": [
+        {
+          "name": "Get My Profile",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/users/me",
+              "host": ["{{baseUrl}}"],
+              "path": ["users", "me"]
+            }
+          }
+        },
+        {
+          "name": "Update My Profile",
+          "request": {
+            "method": "PATCH",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"firstName\": \"Test\",\n  \"lastName\": \"User\",\n  \"upiId\": \"testuser@okhdfcbank\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/users/me",
+              "host": ["{{baseUrl}}"],
+              "path": ["users", "me"]
+            },
+            "description": "Editable: firstName, lastName, email, avatarUrl, defaultCurrency, upiId. (plan is NOT editable here — it changes via billing/admin.) Set upiId to receive UPI settle-ups."
+          }
+        },
+        {
+          "name": "List Users (admin)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/users?page=1&limit=20",
+              "host": ["{{baseUrl}}"],
+              "path": ["users"],
+              "query": [
+                { "key": "page", "value": "1" },
+                { "key": "limit", "value": "20" },
+                { "key": "search", "value": "", "disabled": true }
+              ]
+            },
+            "description": "Admin only."
+          }
+        },
+        {
+          "name": "Get User By Id (admin)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/users/{{userId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["users", "{{userId}}"]
+            }
+          }
+        },
+        {
+          "name": "Delete User (admin)",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/users/{{userId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["users", "{{userId}}"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Categories",
+      "item": [
+        {
+          "name": "List Categories",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/categories?type=expense",
+              "host": ["{{baseUrl}}"],
+              "path": ["categories"],
+              "query": [
+                { "key": "type", "value": "expense" },
+                { "key": "includeInactive", "value": "true", "disabled": true },
+                { "key": "search", "value": "", "disabled": true }
+              ]
+            },
+            "description": "type = expense | income. includeInactive honoured for admins only."
+          }
+        },
+        {
+          "name": "Create Category (admin)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const res = pm.response.json();",
+                  "if (res && res.data && res.data.id) pm.collectionVariables.set('categoryId', res.data.id);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Pet Care\",\n  \"type\": \"expense\",\n  \"icon\": \"paw\",\n  \"color\": \"#4ECDC4\",\n  \"description\": \"Pet expenses\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/categories",
+              "host": ["{{baseUrl}}"],
+              "path": ["categories"]
+            }
+          }
+        },
+        {
+          "name": "Get Category By Id",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/categories/{{categoryId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["categories", "{{categoryId}}"]
+            }
+          }
+        },
+        {
+          "name": "Update Category (admin)",
+          "request": {
+            "method": "PATCH",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"color\": \"#FF6B6B\",\n  \"sortOrder\": 10\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/categories/{{categoryId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["categories", "{{categoryId}}"]
+            }
+          }
+        },
+        {
+          "name": "Delete Category (admin)",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/categories/{{categoryId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["categories", "{{categoryId}}"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Expenses",
+      "item": [
+        {
+          "name": "Create Expense",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const res = pm.response.json();",
+                  "if (res && res.data && res.data.id) pm.collectionVariables.set('expenseId', res.data.id);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"amount\": 250.5,\n  \"category\": \"Food\",\n  \"paymentMethod\": \"upi\",\n  \"merchant\": \"Corner Cafe\",\n  \"description\": \"Lunch\",\n  \"notes\": \"with team\",\n  \"tags\": [\"lunch\", \"work\"]\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/expenses",
+              "host": ["{{baseUrl}}"],
+              "path": ["expenses"]
+            },
+            "description": "paymentMethod = cash | card | upi | bank_transfer | wallet | other."
+          }
+        },
+        {
+          "name": "List Expenses",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/expenses?page=1&limit=20",
+              "host": ["{{baseUrl}}"],
+              "path": ["expenses"],
+              "query": [
+                { "key": "page", "value": "1" },
+                { "key": "limit", "value": "20" },
+                { "key": "category", "value": "Food", "disabled": true },
+                { "key": "paymentMethod", "value": "upi", "disabled": true },
+                { "key": "source", "value": "group_share", "disabled": true },
+                { "key": "from", "value": "2026-01-01", "disabled": true },
+                { "key": "to", "value": "2026-12-31", "disabled": true },
+                { "key": "minAmount", "value": "0", "disabled": true },
+                { "key": "maxAmount", "value": "1000", "disabled": true },
+                { "key": "search", "value": "cafe", "disabled": true },
+                { "key": "sortBy", "value": "spentAt", "disabled": true },
+                { "key": "sortOrder", "value": "desc", "disabled": true }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Expense Summary",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/expenses/summary",
+              "host": ["{{baseUrl}}"],
+              "path": ["expenses", "summary"],
+              "query": [
+                { "key": "from", "value": "2026-01-01", "disabled": true },
+                { "key": "to", "value": "2026-12-31", "disabled": true }
+              ]
+            },
+            "description": "Total + per-category + per-paymentMethod breakdown."
+          }
+        },
+        {
+          "name": "Get Expense",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/expenses/{{expenseId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["expenses", "{{expenseId}}"]
+            }
+          }
+        },
+        {
+          "name": "Update Expense",
+          "request": {
+            "method": "PATCH",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"amount\": 275,\n  \"notes\": \"updated\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/expenses/{{expenseId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["expenses", "{{expenseId}}"]
+            }
+          }
+        },
+        {
+          "name": "Delete Expense",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/expenses/{{expenseId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["expenses", "{{expenseId}}"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Income",
+      "item": [
+        {
+          "name": "Create Income",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const res = pm.response.json();",
+                  "if (res && res.data && res.data.id) pm.collectionVariables.set('incomeId', res.data.id);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"amount\": 50000,\n  \"category\": \"Salary\",\n  \"source\": \"Acme Corp\",\n  \"receivedVia\": \"bank_transfer\",\n  \"isRecurring\": true\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/income",
+              "host": ["{{baseUrl}}"],
+              "path": ["income"]
+            },
+            "description": "receivedVia = cash | card | upi | bank_transfer | wallet | other."
+          }
+        },
+        {
+          "name": "List Income",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/income?page=1&limit=20",
+              "host": ["{{baseUrl}}"],
+              "path": ["income"],
+              "query": [
+                { "key": "page", "value": "1" },
+                { "key": "limit", "value": "20" },
+                { "key": "category", "value": "Salary", "disabled": true },
+                { "key": "receivedVia", "value": "bank_transfer", "disabled": true },
+                { "key": "from", "value": "2026-01-01", "disabled": true },
+                { "key": "to", "value": "2026-12-31", "disabled": true },
+                { "key": "search", "value": "acme", "disabled": true }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Income Summary",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/income/summary",
+              "host": ["{{baseUrl}}"],
+              "path": ["income", "summary"],
+              "query": [
+                { "key": "from", "value": "2026-01-01", "disabled": true },
+                { "key": "to", "value": "2026-12-31", "disabled": true }
+              ]
+            },
+            "description": "Total + per-category + per-source breakdown."
+          }
+        },
+        {
+          "name": "Get Income",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/income/{{incomeId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["income", "{{incomeId}}"]
+            }
+          }
+        },
+        {
+          "name": "Update Income",
+          "request": {
+            "method": "PATCH",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"amount\": 52000,\n  \"notes\": \"appraisal\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/income/{{incomeId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["income", "{{incomeId}}"]
+            }
+          }
+        },
+        {
+          "name": "Delete Income",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/income/{{incomeId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["income", "{{incomeId}}"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Groups",
+      "item": [
+        {
+          "name": "Create Group",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const res = pm.response.json();",
+                  "if (res && res.data) {",
+                  "  pm.collectionVariables.set('groupId', res.data.id);",
+                  "  (res.data.members || []).forEach(function (m, i) { pm.collectionVariables.set('memberId' + (i + 1), m.id); });",
+                  "  if (res.data.members && res.data.members[0]) pm.collectionVariables.set('memberId', res.data.members[0].id);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Goa Trip\",\n  \"description\": \"December trip\",\n  \"currency\": \"INR\",\n  \"members\": [\n    { \"phoneNumber\": \"9000000001\", \"displayName\": \"Alice\" },\n    { \"phoneNumber\": \"9000000002\", \"displayName\": \"Bob\" }\n  ]\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/groups",
+              "host": ["{{baseUrl}}"],
+              "path": ["groups"]
+            },
+            "description": "Creator becomes admin member (memberId1). Phone members who aren't on Spendes become 'invited' placeholders (memberId2, memberId3) — they auto-link when that phone registers. You can also invite by `userId` instead of phone."
+          }
+        },
+        {
+          "name": "List Groups",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/groups?page=1&limit=20",
+              "host": ["{{baseUrl}}"],
+              "path": ["groups"],
+              "query": [
+                { "key": "page", "value": "1" },
+                { "key": "limit", "value": "20" }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Get Group",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/groups/{{groupId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["groups", "{{groupId}}"]
+            }
+          }
+        },
+        {
+          "name": "Update Group (admin)",
+          "request": {
+            "method": "PATCH",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Goa Trip 2026\",\n  \"description\": \"Updated\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/groups/{{groupId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["groups", "{{groupId}}"]
+            }
+          }
+        },
+        {
+          "name": "Add Member (admin)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"phoneNumber\": \"9000000003\",\n  \"displayName\": \"Charlie\",\n  \"role\": \"member\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/groups/{{groupId}}/members",
+              "host": ["{{baseUrl}}"],
+              "path": ["groups", "{{groupId}}", "members"]
+            },
+            "description": "Add by `userId` OR `phoneNumber` (+ optional dialCode). role = admin | member."
+          }
+        },
+        {
+          "name": "Update Member Role (admin)",
+          "request": {
+            "method": "PATCH",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"role\": \"admin\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/groups/{{groupId}}/members/{{memberId2}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["groups", "{{groupId}}", "members", "{{memberId2}}"]
+            }
+          }
+        },
+        {
+          "name": "Remove Member / Leave",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/groups/{{groupId}}/members/{{memberId3}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["groups", "{{groupId}}", "members", "{{memberId3}}"]
+            },
+            "description": "Admin can remove anyone; a member can remove themselves (leave)."
+          }
+        },
+        {
+          "name": "Delete Group (admin)",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/groups/{{groupId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["groups", "{{groupId}}"]
+            },
+            "description": "Soft-archives the group (isActive=false)."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Splits - Group Expenses",
+      "item": [
+        {
+          "name": "Create Group Expense (Equal)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const res = pm.response.json();",
+                  "if (res && res.data && res.data.id) pm.collectionVariables.set('groupExpenseId', res.data.id);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"description\": \"Dinner\",\n  \"amount\": 900,\n  \"splitStrategy\": \"equal\",\n  \"paidBy\": [ { \"memberId\": \"{{memberId1}}\", \"amount\": 900 } ],\n  \"splits\": [\n    { \"memberId\": \"{{memberId1}}\" },\n    { \"memberId\": \"{{memberId2}}\" },\n    { \"memberId\": \"{{memberId3}}\" }\n  ]\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/groups/{{groupId}}/expenses",
+              "host": ["{{baseUrl}}"],
+              "path": ["groups", "{{groupId}}", "expenses"]
+            },
+            "description": "Split 900 equally across 3 members (300 each)."
+          }
+        },
+        {
+          "name": "Create Group Expense (Exact)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"description\": \"Groceries\",\n  \"amount\": 1000,\n  \"splitStrategy\": \"exact\",\n  \"paidBy\": [ { \"memberId\": \"{{memberId1}}\", \"amount\": 1000 } ],\n  \"splits\": [\n    { \"memberId\": \"{{memberId1}}\", \"exactAmount\": 400 },\n    { \"memberId\": \"{{memberId2}}\", \"exactAmount\": 600 }\n  ]\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/groups/{{groupId}}/expenses",
+              "host": ["{{baseUrl}}"],
+              "path": ["groups", "{{groupId}}", "expenses"]
+            },
+            "description": "exactAmount values must sum to amount."
+          }
+        },
+        {
+          "name": "Create Group Expense (Percentage)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"description\": \"Hotel\",\n  \"amount\": 3000,\n  \"splitStrategy\": \"percentage\",\n  \"paidBy\": [ { \"memberId\": \"{{memberId1}}\", \"amount\": 3000 } ],\n  \"splits\": [\n    { \"memberId\": \"{{memberId1}}\", \"percentage\": 50 },\n    { \"memberId\": \"{{memberId2}}\", \"percentage\": 25 },\n    { \"memberId\": \"{{memberId3}}\", \"percentage\": 25 }\n  ]\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/groups/{{groupId}}/expenses",
+              "host": ["{{baseUrl}}"],
+              "path": ["groups", "{{groupId}}", "expenses"]
+            },
+            "description": "percentage values must sum to 100."
+          }
+        },
+        {
+          "name": "Create Group Expense (Shares)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"description\": \"Cab\",\n  \"amount\": 700,\n  \"splitStrategy\": \"shares\",\n  \"paidBy\": [ { \"memberId\": \"{{memberId2}}\", \"amount\": 700 } ],\n  \"splits\": [\n    { \"memberId\": \"{{memberId1}}\", \"shares\": 2 },\n    { \"memberId\": \"{{memberId2}}\", \"shares\": 1 },\n    { \"memberId\": \"{{memberId3}}\", \"shares\": 1 }\n  ]\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/groups/{{groupId}}/expenses",
+              "host": ["{{baseUrl}}"],
+              "path": ["groups", "{{groupId}}", "expenses"]
+            },
+            "description": "Split by ratio 2:1:1 (350 / 175 / 175)."
+          }
+        },
+        {
+          "name": "List Group Expenses",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/groups/{{groupId}}/expenses?page=1&limit=20",
+              "host": ["{{baseUrl}}"],
+              "path": ["groups", "{{groupId}}", "expenses"],
+              "query": [
+                { "key": "page", "value": "1" },
+                { "key": "limit", "value": "20" }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Get Group Expense",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/groups/{{groupId}}/expenses/{{groupExpenseId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["groups", "{{groupId}}", "expenses", "{{groupExpenseId}}"]
+            }
+          }
+        },
+        {
+          "name": "Update Group Expense (metadata)",
+          "request": {
+            "method": "PATCH",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"description\": \"Dinner (updated)\",\n  \"notes\": \"added tip\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/groups/{{groupId}}/expenses/{{groupExpenseId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["groups", "{{groupId}}", "expenses", "{{groupExpenseId}}"]
+            },
+            "description": "Only metadata (description/category/spentAt/notes) is editable. To change amount/splits, delete and re-add."
+          }
+        },
+        {
+          "name": "Delete Group Expense",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/groups/{{groupId}}/expenses/{{groupExpenseId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["groups", "{{groupId}}", "expenses", "{{groupExpenseId}}"]
+            },
+            "description": "Creator or group admin only."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Splits - Balances",
+      "item": [
+        {
+          "name": "Get Group Balances",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/groups/{{groupId}}/balances",
+              "host": ["{{baseUrl}}"],
+              "path": ["groups", "{{groupId}}", "balances"]
+            },
+            "description": "Net per member (+ owed to them / - they owe) plus simplified 'who pays whom' suggestedTransfers."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Splits - Settlements",
+      "item": [
+        {
+          "name": "Build UPI Settlement Intent",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"toMemberId\": \"{{memberId1}}\",\n  \"amount\": 300,\n  \"note\": \"Settling up\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/groups/{{groupId}}/settlements/intent",
+              "host": ["{{baseUrl}}"],
+              "path": ["groups", "{{groupId}}", "settlements", "intent"]
+            },
+            "description": "Returns a `upi://pay?...` deep link. REQUIRES the payee (toMemberId) to be a registered user with a upiId set (use Update My Profile on that account first). Paying a phone-only placeholder returns 400 by design."
+          }
+        },
+        {
+          "name": "Record Settlement",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const res = pm.response.json();",
+                  "if (res && res.data && res.data.id) pm.collectionVariables.set('settlementId', res.data.id);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"toMemberId\": \"{{memberId1}}\",\n  \"amount\": 300,\n  \"method\": \"upi\",\n  \"note\": \"Paid via UPI\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/groups/{{groupId}}/settlements",
+              "host": ["{{baseUrl}}"],
+              "path": ["groups", "{{groupId}}", "settlements"]
+            },
+            "description": "The 'mark as paid' record. fromMemberId defaults to your member. method = cash | card | upi | bank_transfer | wallet | other."
+          }
+        },
+        {
+          "name": "List Settlements",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/groups/{{groupId}}/settlements?page=1&limit=20",
+              "host": ["{{baseUrl}}"],
+              "path": ["groups", "{{groupId}}", "settlements"],
+              "query": [
+                { "key": "page", "value": "1" },
+                { "key": "limit", "value": "20" }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Friends (1-on-1 splits)",
+      "item": [
+        {
+          "name": "Add Friend",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const res = pm.response.json();",
+                  "if (res && res.data) {",
+                  "  pm.collectionVariables.set('friendshipId', res.data.friendshipId);",
+                  "  pm.collectionVariables.set('fMyMemberId', res.data.myMemberId);",
+                  "  pm.collectionVariables.set('fFriendMemberId', res.data.friendMemberId);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"phoneNumber\": \"9000000009\",\n  \"displayName\": \"Frank\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/friends",
+              "host": ["{{baseUrl}}"],
+              "path": ["friends"]
+            },
+            "description": "Add a friend by phone or `userId`. An unknown phone becomes an invited placeholder that auto-links when they register. Re-adding the same person reuses the existing friendship. Saves friendshipId + the two member ids."
+          }
+        },
+        {
+          "name": "List Friends",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/friends",
+              "host": ["{{baseUrl}}"],
+              "path": ["friends"]
+            },
+            "description": "Each friend's net (+ = they owe you, - = you owe) plus headline totalYouAreOwed / totalYouOwe."
+          }
+        },
+        {
+          "name": "Get Friend",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/friends/{{friendshipId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["friends", "{{friendshipId}}"]
+            }
+          }
+        },
+        {
+          "name": "Create Friend Expense (direct split)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"description\": \"Lunch\",\n  \"amount\": 500,\n  \"splitStrategy\": \"equal\",\n  \"paidBy\": [ { \"memberId\": \"{{fMyMemberId}}\", \"amount\": 500 } ],\n  \"splits\": [\n    { \"memberId\": \"{{fMyMemberId}}\" },\n    { \"memberId\": \"{{fFriendMemberId}}\" }\n  ]\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/friends/{{friendshipId}}/expenses",
+              "host": ["{{baseUrl}}"],
+              "path": ["friends", "{{friendshipId}}", "expenses"]
+            },
+            "description": "A 1-on-1 split (all 4 strategies supported). Your share also lands in your personal expenses (source=group_share)."
+          }
+        },
+        {
+          "name": "List Friend Expenses",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/friends/{{friendshipId}}/expenses?page=1&limit=20",
+              "host": ["{{baseUrl}}"],
+              "path": ["friends", "{{friendshipId}}", "expenses"],
+              "query": [
+                { "key": "page", "value": "1" },
+                { "key": "limit", "value": "20" }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Friend Settlement Intent (UPI)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"toMemberId\": \"{{fFriendMemberId}}\",\n  \"amount\": 250,\n  \"note\": \"Settling up\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/friends/{{friendshipId}}/settlements/intent",
+              "host": ["{{baseUrl}}"],
+              "path": ["friends", "{{friendshipId}}", "settlements", "intent"]
+            },
+            "description": "Builds a upi://pay link to pay the friend. Requires the friend to be a registered user with a upiId set (else 400)."
+          }
+        },
+        {
+          "name": "Record Friend Settlement",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"fromMemberId\": \"{{fFriendMemberId}}\",\n  \"toMemberId\": \"{{fMyMemberId}}\",\n  \"amount\": 250,\n  \"method\": \"upi\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/friends/{{friendshipId}}/settlements",
+              "host": ["{{baseUrl}}"],
+              "path": ["friends", "{{friendshipId}}", "settlements"]
+            },
+            "description": "Mark a payment as made between you and the friend; recomputes the friend balance."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Budgets",
+      "item": [
+        {
+          "name": "Create Budget",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const res = pm.response.json();",
+                  "if (res && res.data && res.data.id) pm.collectionVariables.set('budgetId', res.data.id);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Food\",\n  \"category\": \"Food\",\n  \"amount\": 8000,\n  \"period\": \"monthly\",\n  \"alertThresholdPct\": 80\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": { "raw": "{{baseUrl}}/budgets", "host": ["{{baseUrl}}"], "path": ["budgets"] },
+            "description": "Overall (omit category) or per-category limit. period = weekly | monthly | yearly | custom (custom needs startDate+endDate). spent/remaining/status are computed and include your group/friend shares."
+          }
+        },
+        {
+          "name": "List Budgets",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/budgets?page=1&limit=20",
+              "host": ["{{baseUrl}}"],
+              "path": ["budgets"],
+              "query": [
+                { "key": "page", "value": "1" },
+                { "key": "limit", "value": "20" },
+                { "key": "activeOnly", "value": "true", "disabled": true }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Get Budget",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/budgets/{{budgetId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["budgets", "{{budgetId}}"]
+            }
+          }
+        },
+        {
+          "name": "Update Budget",
+          "request": {
+            "method": "PATCH",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"amount\": 10000\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/budgets/{{budgetId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["budgets", "{{budgetId}}"]
+            }
+          }
+        },
+        {
+          "name": "Delete Budget",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/budgets/{{budgetId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["budgets", "{{budgetId}}"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "EMIs",
+      "item": [
+        {
+          "name": "Create EMI",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const res = pm.response.json();",
+                  "if (res && res.data && res.data.id) pm.collectionVariables.set('emiId', res.data.id);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Home Loan\",\n  \"type\": \"loan\",\n  \"amount\": 15000,\n  \"frequency\": \"monthly\",\n  \"startDate\": \"2026-01-05\",\n  \"tenureCount\": 24,\n  \"interestRatePct\": 8.5\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": { "raw": "{{baseUrl}}/emis", "host": ["{{baseUrl}}"], "path": ["emis"] },
+            "description": "type = loan | subscription | rent | insurance | other. frequency = weekly | monthly | quarterly | yearly. tenureCount makes it finite (loan); omit for an indefinite subscription. Next due date / paid / remaining are computed."
+          }
+        },
+        {
+          "name": "List EMIs",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/emis?page=1&limit=20",
+              "host": ["{{baseUrl}}"],
+              "path": ["emis"],
+              "query": [
+                { "key": "page", "value": "1" },
+                { "key": "limit", "value": "20" },
+                { "key": "type", "value": "loan", "disabled": true },
+                { "key": "activeOnly", "value": "true", "disabled": true }
+              ]
+            }
+          }
+        },
+        {
+          "name": "EMI Summary",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/emis/summary",
+              "host": ["{{baseUrl}}"],
+              "path": ["emis", "summary"]
+            },
+            "description": "Total monthly commitment, total outstanding, due-this-month, and per-type breakdown."
+          }
+        },
+        {
+          "name": "Get EMI",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/emis/{{emiId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["emis", "{{emiId}}"]
+            }
+          }
+        },
+        {
+          "name": "Update EMI",
+          "request": {
+            "method": "PATCH",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"amount\": 15500\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/emis/{{emiId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["emis", "{{emiId}}"]
+            }
+          }
+        },
+        {
+          "name": "Delete EMI",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/emis/{{emiId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["emis", "{{emiId}}"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Goals",
+      "item": [
+        {
+          "name": "Create Goal",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const res = pm.response.json();",
+                  "if (res && res.data && res.data.id) pm.collectionVariables.set('goalId', res.data.id);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Goa Trip\",\n  \"targetAmount\": 30000,\n  \"targetDate\": \"2027-12-31\",\n  \"icon\": \"airplane\",\n  \"color\": \"#4ECDC4\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": { "raw": "{{baseUrl}}/goals", "host": ["{{baseUrl}}"], "path": ["goals"] },
+            "description": "progressPct / remaining / requiredMonthlySaving (with a targetDate) are computed."
+          }
+        },
+        {
+          "name": "Contribute to Goal",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"amount\": 5000,\n  \"note\": \"first deposit\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/goals/{{goalId}}/contribute",
+              "host": ["{{baseUrl}}"],
+              "path": ["goals", "{{goalId}}", "contribute"]
+            }
+          }
+        },
+        {
+          "name": "List Goals",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/goals?page=1&limit=20",
+              "host": ["{{baseUrl}}"],
+              "path": ["goals"],
+              "query": [
+                { "key": "page", "value": "1" },
+                { "key": "limit", "value": "20" },
+                { "key": "activeOnly", "value": "true", "disabled": true }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Get Goal",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/goals/{{goalId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["goals", "{{goalId}}"]
+            }
+          }
+        },
+        {
+          "name": "Update Goal",
+          "request": {
+            "method": "PATCH",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"targetAmount\": 35000\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/goals/{{goalId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["goals", "{{goalId}}"]
+            }
+          }
+        },
+        {
+          "name": "Delete Goal",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/goals/{{goalId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["goals", "{{goalId}}"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Investments",
+      "item": [
+        {
+          "name": "Create Investment",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const res = pm.response.json();",
+                  "if (res && res.data && res.data.id) pm.collectionVariables.set('investmentId', res.data.id);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"HDFC Index Fund\",\n  \"type\": \"mutual_fund\",\n  \"investedAmount\": 50000,\n  \"currentValue\": 58000,\n  \"platform\": \"Groww\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/investments",
+              "host": ["{{baseUrl}}"],
+              "path": ["investments"]
+            },
+            "description": "type = mutual_fund | stock | fd | gold | crypto | bond | real_estate | other. gainLoss/gainLossPct are computed; refresh currentValue via PATCH."
+          }
+        },
+        {
+          "name": "List Investments",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/investments?page=1&limit=20",
+              "host": ["{{baseUrl}}"],
+              "path": ["investments"],
+              "query": [
+                { "key": "page", "value": "1" },
+                { "key": "limit", "value": "20" },
+                { "key": "type", "value": "mutual_fund", "disabled": true }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Portfolio Summary",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/investments/summary",
+              "host": ["{{baseUrl}}"],
+              "path": ["investments", "summary"]
+            },
+            "description": "Total invested / current value / gain-loss + allocation by asset class."
+          }
+        },
+        {
+          "name": "Get Investment",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/investments/{{investmentId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["investments", "{{investmentId}}"]
+            }
+          }
+        },
+        {
+          "name": "Update Investment (current value)",
+          "request": {
+            "method": "PATCH",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"currentValue\": 61000\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/investments/{{investmentId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["investments", "{{investmentId}}"]
+            }
+          }
+        },
+        {
+          "name": "Delete Investment",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/investments/{{investmentId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["investments", "{{investmentId}}"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Analytics",
+      "item": [
+        {
+          "name": "Overview",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/analytics/overview",
+              "host": ["{{baseUrl}}"],
+              "path": ["analytics", "overview"]
+            },
+            "description": "This month's income/expense/net/savings-rate, top categories, EMI commitments, portfolio, and a (partial) net worth."
+          }
+        },
+        {
+          "name": "Cash-flow Trend",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/analytics/cashflow?months=6",
+              "host": ["{{baseUrl}}"],
+              "path": ["analytics", "cashflow"],
+              "query": [{ "key": "months", "value": "6" }]
+            },
+            "description": "Income vs expense per month across the trailing N months (1-24)."
+          }
+        }
+      ]
+    },
+    {
+      "name": "System",
+      "item": [
+        {
+          "name": "API Info",
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/",
+              "host": ["{{baseUrl}}"],
+              "path": [""]
+            }
+          }
+        },
+        {
+          "name": "Health",
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/health",
+              "host": ["{{baseUrl}}"],
+              "path": ["health"]
+            }
+          }
+        }
+      ]
+    }
+  ]
+}

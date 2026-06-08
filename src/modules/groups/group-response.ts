@@ -1,4 +1,4 @@
-import { GroupMemberStatus, type GroupRole } from './groups.enums';
+import { GroupKind, GroupMemberStatus, type GroupRole } from './groups.enums';
 import type { GroupDocument, GroupMember } from './groups.model';
 
 /** Public shape of a single group member. */
@@ -29,6 +29,7 @@ export interface GroupResponse {
   description?: string;
   avatarUrl?: string;
   currency: string;
+  kind: GroupKind;
   createdBy: string;
   members: GroupMemberResponse[];
   memberCount: number;
@@ -67,6 +68,7 @@ export function toGroupResponse(group: GroupDocument, viewerUserId?: string): Gr
     description: group.description,
     avatarUrl: group.avatarUrl,
     currency: group.currency,
+    kind: group.kind ?? GroupKind.Standard,
     createdBy: group.createdBy.toString(),
     members: present.map((m) => toMemberResponse(m, viewerUserId)),
     memberCount: present.length,

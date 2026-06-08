@@ -81,6 +81,43 @@ export class IncomeRepository extends BaseRepository<IncomeDocument> {
 
     return result ?? { overall: [], byCategory: [], bySource: [] };
   }
+
+  /** Total income for a user within a window — used by analytics for the monthly snapshot. */
+  async sumAmount(userId: string, range: { from: Date; to: Date }): Promise<number> {
+    const [result] = await this.aggregate<{ total: number }>([
+      {
+        $match: {
+          userId: new Types.ObjectId(userId),
+          receivedAt: { $gte: range.from, $lte: range.to },
+        },
+      },
+      { $group: { _id: null, total: { $sum: '$amount' } } },
+    ]);
+    return result?.total ?? 0;
+  }
+
+  /** Per-(year,month) income totals within a window — for the analytics cash-flow trend. */
+  async monthlyTotals(
+    userId: string,
+    range: { from: Date; to: Date },
+  ): Promise<{ year: number; month: number; total: number }[]> {
+    const rows = await this.aggregate<{ _id: { year: number; month: number }; total: number }>([
+      {
+        $match: {
+          userId: new Types.ObjectId(userId),
+          receivedAt: { $gte: range.from, $lte: range.to },
+        },
+      },
+      {
+        $group: {
+          _id: { year: { $year: '$receivedAt' }, month: { $month: '$receivedAt' } },
+          total: { $sum: '$amount' },
+        },
+      },
+      { $sort: { '_id.year': 1, '_id.month': 1 } },
+    ]);
+    return rows.map((r) => ({ year: r._id.year, month: r._id.month, total: r.total }));
+  }
 }
 
 /** Shared singleton instance used across the app. */

@@ -7,6 +7,13 @@ import { categoriesRouter } from './modules/categories/categories.routes';
 import { expensesRouter } from './modules/expenses/expenses.routes';
 import { incomeRouter } from './modules/income/income.routes';
 import { groupsRouter } from './modules/groups/groups.routes';
+import { splitsRouter } from './modules/splits/splits.routes';
+import { friendsRouter } from './modules/friends/friends.routes';
+import { budgetsRouter } from './modules/budgets/budgets.routes';
+import { emisRouter } from './modules/emis/emis.routes';
+import { goalsRouter } from './modules/goals/goals.routes';
+import { investmentsRouter } from './modules/investments/investments.routes';
+import { analyticsRouter } from './modules/analytics/analytics.routes';
 import { healthRouter } from './health/health.routes';
 
 export interface AppInfo {
@@ -42,4 +49,13 @@ apiRouter.use('/categories', categoriesRouter);
 apiRouter.use('/expenses', expensesRouter);
 apiRouter.use('/income', incomeRouter);
 apiRouter.use('/groups', groupsRouter);
+// Group-scoped splits (expenses, balances, settlements). Mounted after the groups
+// router so the bare `/groups/:id` routes match first; deeper paths fall through.
+apiRouter.use('/groups/:groupId', splitsRouter);
+apiRouter.use('/friends', friendsRouter);
+apiRouter.use('/budgets', budgetsRouter);
+apiRouter.use('/emis', emisRouter);
+apiRouter.use('/goals', goalsRouter);
+apiRouter.use('/investments', investmentsRouter);
+apiRouter.use('/analytics', analyticsRouter);
 apiRouter.use('/health', healthRouter);
