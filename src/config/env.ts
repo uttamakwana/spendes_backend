@@ -106,6 +106,11 @@ const envSchema = z.object({
   // --- Payments (settle-up rail) ---
   PAYMENT_PROVIDER: z.nativeEnum(PaymentProviderName).default(PaymentProviderName.UpiIntent),
 
+  // --- Push notifications (Expo push service) ---
+  // Optional. Only required if "Enhanced Security for Push Notifications" is
+  // enabled in the Expo dashboard; otherwise tokens send unauthenticated.
+  EXPO_ACCESS_TOKEN: z.string().optional(),
+
   // --- Monetization / entitlements ---
   // Keep OFF through the MVP: every plan gets every feature. Flip to true when the
   // Pro tier + billing ship to turn paid gating on (no code changes needed).

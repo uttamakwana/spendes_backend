@@ -4,6 +4,7 @@ import { buildSort } from '../../common/utils/pagination';
 import { paginate } from '../../common/utils/response';
 import type { PaginatedData } from '../../common/types/api-response';
 import { createLogger } from '../../logger';
+import { pushService } from '../push/push.service';
 import { usersService } from '../users/users.service';
 import type { NotificationDocument } from './notification.model';
 import { toNotificationResponse, type NotificationResponse } from './notification-response';
@@ -219,10 +220,26 @@ export class NotificationsService {
 
   // --- Internals -------------------------------------------------------------
 
-  /** Persists a notification, swallowing and logging any error (never throws). */
+  /**
+   * Persists a notification, swallowing and logging any error (never throws),
+   * then surfaces it as a device push. The push is fire-and-forget: it never
+   * blocks or fails the in-app write, which remains the inbox's source of truth.
+   * The `data` payload mirrors the inbox's deep-link routing so a tap lands on
+   * the same group/friend screen.
+   */
   private async emit(doc: Partial<Omit<NotificationDocument, '_id'>>): Promise<void> {
     try {
-      await this.repository.create(doc);
+      const created = await this.repository.create(doc);
+      void pushService.sendToUser(created.userId.toString(), {
+        title: created.title,
+        body: created.body,
+        data: {
+          type: created.type,
+          notificationId: created._id.toString(),
+          groupId: created.groupId?.toString(),
+          isDirect: created.isDirect ?? false,
+        },
+      });
     } catch (error) {
       this.logger.warn(`Failed to create notification: ${(error as Error).message}`);
     }

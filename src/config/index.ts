@@ -75,6 +75,11 @@ export interface PaymentsConfig {
   provider: PaymentProviderName;
 }
 
+export interface PushConfig {
+  /** Expo access token; set only when "enhanced security" push is enabled. */
+  expoAccessToken?: string;
+}
+
 export interface EntitlementsConfig {
   /** When false (the MVP default), plan gating is a pass-through — everything is free. */
   enforced: boolean;
@@ -105,6 +110,7 @@ export interface AppConfiguration {
   otp: OtpConfig;
   sms: SmsConfig;
   payments: PaymentsConfig;
+  push: PushConfig;
   entitlements: EntitlementsConfig;
   phone: PhoneConfig;
   throttle: ThrottleConfig;
@@ -160,6 +166,9 @@ export const config: AppConfiguration = {
   },
   payments: {
     provider: env.PAYMENT_PROVIDER,
+  },
+  push: {
+    expoAccessToken: env.EXPO_ACCESS_TOKEN || undefined,
   },
   entitlements: {
     enforced: env.ENTITLEMENTS_ENFORCED,
