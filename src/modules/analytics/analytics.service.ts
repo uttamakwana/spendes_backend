@@ -41,6 +41,7 @@ export class AnalyticsService {
 
     const income = round2(incomeSummary.totalAmount);
     const expense = round2(expenseSummary.totalAmount);
+    const cashOutflow = round2(expenseSummary.cashOutflow);
     const net = round2(income - expense);
     const savingsRate = income > 0 ? round2((net / income) * 100) : 0;
 
@@ -51,6 +52,7 @@ export class AnalyticsService {
       period: range,
       income,
       expense,
+      cashOutflow,
       net,
       savingsRate,
       topCategories: expenseSummary.byCategory

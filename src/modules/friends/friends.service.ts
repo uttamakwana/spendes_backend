@@ -5,6 +5,7 @@ import { GroupKind, GroupMemberStatus } from '../groups/groups.enums';
 import type { GroupDocument } from '../groups/groups.model';
 import { groupsRepository } from '../groups/groups.repository';
 import { groupsService } from '../groups/groups.service';
+import { notificationsService } from '../notifications/notifications.service';
 import { splitsService } from '../splits/splits.service';
 import type {
   GroupExpenseResponse,
@@ -38,8 +39,23 @@ export class FriendsService {
     const { group, created } = await groupsService.findOrCreateDirect(userId, dto);
     if (created) {
       this.logger.info(`Friend added: friendship ${group._id.toString()} for user ${userId}`);
+      await this.notifyFriendAdded(userId, group);
     }
     return this.toFriend(userId, group);
+  }
+
+  /** Tells a newly-added, registered friend they were added (a placeholder gets it on register). */
+  private async notifyFriendAdded(userId: string, group: GroupDocument): Promise<void> {
+    const me = group.members.find((m) => m.userId?.toString() === userId);
+    const friend = group.members.find((m) => m._id.toString() !== me?._id.toString());
+    if (friend?.userId && friend.userId.toString() !== userId) {
+      await notificationsService.notifyFriendAdded({
+        recipientUserId: friend.userId.toString(),
+        actorName: me?.displayName ?? 'Someone',
+        actorUserId: userId,
+        friendshipId: group._id.toString(),
+      });
+    }
   }
 
   async listFriends(userId: string): Promise<FriendsListResponse> {

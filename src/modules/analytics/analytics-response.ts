@@ -15,6 +15,12 @@ export interface AnalyticsOverviewResponse {
   period: { from: Date; to: Date };
   income: number;
   expense: number;
+  /**
+   * Actual cash that left the user's pocket this period — personal spend plus the
+   * user's payer share of splits (what they fronted), even the part others owe back.
+   * Always ≥ `expense` (consumption/your share); the gap is money you're owed.
+   */
+  cashOutflow: number;
   net: number;
   savingsRate: number;
   topCategories: TopCategory[];

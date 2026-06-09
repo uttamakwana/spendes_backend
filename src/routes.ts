@@ -14,6 +14,7 @@ import { emisRouter } from './modules/emis/emis.routes';
 import { goalsRouter } from './modules/goals/goals.routes';
 import { investmentsRouter } from './modules/investments/investments.routes';
 import { analyticsRouter } from './modules/analytics/analytics.routes';
+import { notificationsRouter } from './modules/notifications/notifications.routes';
 import { healthRouter } from './health/health.routes';
 
 export interface AppInfo {
@@ -58,4 +59,5 @@ apiRouter.use('/emis', emisRouter);
 apiRouter.use('/goals', goalsRouter);
 apiRouter.use('/investments', investmentsRouter);
 apiRouter.use('/analytics', analyticsRouter);
+apiRouter.use('/notifications', notificationsRouter);
 apiRouter.use('/health', healthRouter);
