@@ -4,13 +4,14 @@ import { buildSort } from '../../common/utils/pagination';
 import { paginate } from '../../common/utils/response';
 import type { PaginatedData } from '../../common/types/api-response';
 import { createLogger } from '../../logger';
-import { GroupMemberStatus, GroupRole } from '../groups/groups.enums';
+import { GroupKind, GroupMemberStatus, GroupRole } from '../groups/groups.enums';
 import type { GroupDocument, GroupMember } from '../groups/groups.model';
 import { groupsRepository } from '../groups/groups.repository';
 import { usersService } from '../users/users.service';
 import type { UserDocument } from '../users/users.model';
 import { paymentsService } from '../payments/payments.service';
 import { expensesService } from '../expenses/expenses.service';
+import { notificationsService } from '../notifications/notifications.service';
 import { computeNetBalances, computeSplits, simplifyDebts } from './split-calculator';
 import type { GroupExpenseDocument } from './group-expense.model';
 import {
@@ -92,6 +93,7 @@ export class SplitsService {
     });
 
     await this.syncPersonalShares(group, expense);
+    await this.notifySplitMembers(group, expense, userId);
 
     this.logger.info(`Group expense created: ${expense._id.toString()} in group ${groupId}`);
     return toGroupExpenseResponse(expense);
@@ -187,6 +189,12 @@ export class SplitsService {
       note: dto.note,
       settledAt: dto.settledAt ?? new Date(),
       createdByUserId: new Types.ObjectId(userId),
+    });
+
+    await this.notifySettlementParties(group, fromMemberId, toMemberId, userId, {
+      amount: settlement.amount,
+      currency: settlement.currency,
+      settlementId: settlement._id.toString(),
     });
 
     this.logger.info(`Settlement recorded: ${settlement._id.toString()} in group ${groupId}`);
@@ -336,6 +344,7 @@ export class SplitsService {
       await expensesService.createGroupShareExpense({
         userId: member.userId.toString(),
         amount: split.amount,
+        paidAmount: this.memberPaidAmount(expense, split.memberId.toString()),
         currency: expense.currency,
         category: this.shareCategory(expense.category),
         description: expense.description,
@@ -373,6 +382,7 @@ export class SplitsService {
           await expensesService.createGroupShareExpense({
             userId,
             amount: split.amount,
+            paidAmount: this.memberPaidAmount(expense, me._id.toString()),
             currency: expense.currency,
             category: this.shareCategory(expense.category),
             description: expense.description,
@@ -392,7 +402,84 @@ export class SplitsService {
 
   /** A group expense's category, or a sensible default label for the personal share row. */
   private shareCategory(category?: string): string {
-    return category && category.trim() ? category : 'Group';
+    return category && category.trim() ? category : 'Uncategorized';
+  }
+
+  /** How much a given member actually paid for an expense (their `paidBy` total; 0 if none). */
+  private memberPaidAmount(expense: GroupExpenseDocument, memberId: string): number {
+    return round2(
+      expense.paidBy
+        .filter((p) => p.memberId.toString() === memberId)
+        .reduce((sum, p) => sum + p.amount, 0),
+    );
+  }
+
+  /** Notifies every registered split member (except the creator) that they were added. */
+  private async notifySplitMembers(
+    group: GroupDocument,
+    expense: GroupExpenseDocument,
+    actorUserId: string,
+  ): Promise<void> {
+    const actor = this.presentMembers(group).find((m) => m.userId?.toString() === actorUserId);
+    const actorName = actor?.displayName ?? 'Someone';
+    const isDirect = group.kind === GroupKind.Direct;
+    const seen = new Set<string>();
+
+    for (const split of expense.splits) {
+      const member = group.members.find((m) => m._id.toString() === split.memberId.toString());
+      const recipientUserId = member?.userId?.toString();
+      if (!recipientUserId || recipientUserId === actorUserId || seen.has(recipientUserId)) {
+        continue;
+      }
+      seen.add(recipientUserId);
+      await notificationsService.notifySplitAdded({
+        recipientUserId,
+        actorName,
+        actorUserId,
+        description: expense.description,
+        amount: expense.amount,
+        currency: expense.currency,
+        groupId: group._id.toString(),
+        groupExpenseId: expense._id.toString(),
+        isDirect,
+        groupName: isDirect ? undefined : group.name,
+      });
+    }
+  }
+
+  /** Notifies the other party (or both, if an admin recorded it) of a settlement. */
+  private async notifySettlementParties(
+    group: GroupDocument,
+    fromMemberId: string,
+    toMemberId: string,
+    actorUserId: string,
+    settlement: { amount: number; currency: string; settlementId: string },
+  ): Promise<void> {
+    const actor = this.presentMembers(group).find((m) => m.userId?.toString() === actorUserId);
+    const actorName = actor?.displayName ?? 'Someone';
+    const isDirect = group.kind === GroupKind.Direct;
+    const recipients = new Set<string>();
+
+    for (const memberId of [fromMemberId, toMemberId]) {
+      const member = group.members.find((m) => m._id.toString() === memberId);
+      const recipientUserId = member?.userId?.toString();
+      if (recipientUserId && recipientUserId !== actorUserId) {
+        recipients.add(recipientUserId);
+      }
+    }
+
+    for (const recipientUserId of recipients) {
+      await notificationsService.notifySettlement({
+        recipientUserId,
+        actorName,
+        actorUserId,
+        amount: settlement.amount,
+        currency: settlement.currency,
+        groupId: group._id.toString(),
+        settlementId: settlement.settlementId,
+        isDirect,
+      });
+    }
   }
 
   // --- Internals -------------------------------------------------------------

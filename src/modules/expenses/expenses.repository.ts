@@ -1,4 +1,5 @@
 import { type FilterQuery, Types, type UpdateQuery } from 'mongoose';
+import { ExpenseSource } from '../../common/enums/expense-source';
 import { BaseRepository } from '../../database/base.repository';
 import { ExpenseModel, type ExpenseDocument } from './expenses.model';
 
@@ -10,7 +11,7 @@ export interface ExpenseDateRange {
 
 /** Shape returned by the `$facet` summary aggregation (one bucket per `_id`). */
 export interface ExpenseSummaryAggregate {
-  overall: { totalAmount: number; count: number }[];
+  overall: { totalAmount: number; cashOutflow: number; count: number }[];
   byCategory: { _id: string; totalAmount: number; count: number }[];
   byPaymentMethod: { _id: string; totalAmount: number; count: number }[];
 }
@@ -113,7 +114,24 @@ export class ExpensesRepository extends BaseRepository<ExpenseDocument> {
       {
         $facet: {
           overall: [
-            { $group: { _id: null, totalAmount: { $sum: '$amount' }, count: { $sum: 1 } } },
+            {
+              $group: {
+                _id: null,
+                totalAmount: { $sum: '$amount' },
+                // Cash actually paid: personal rows in full, split rows only the
+                // user's payer share (paidAmount, 0 when someone else paid).
+                cashOutflow: {
+                  $sum: {
+                    $cond: [
+                      { $eq: ['$source', ExpenseSource.Personal] },
+                      '$amount',
+                      { $ifNull: ['$paidAmount', 0] },
+                    ],
+                  },
+                },
+                count: { $sum: 1 },
+              },
+            },
           ],
           byCategory: [
             { $group: { _id: '$category', totalAmount: { $sum: '$amount' }, count: { $sum: 1 } } },

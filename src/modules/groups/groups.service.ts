@@ -10,6 +10,7 @@ import { paginate } from '../../common/utils/response';
 import type { PaginatedData } from '../../common/types/api-response';
 import { createLogger } from '../../logger';
 import { phoneService } from '../auth/phone/phone.service';
+import { notificationsService } from '../notifications/notifications.service';
 import { usersService } from '../users/users.service';
 import type { UserDocument } from '../users/users.model';
 import { GroupKind, GroupMemberStatus, GroupRole } from './groups.enums';
@@ -190,6 +191,12 @@ export class GroupsService {
   async linkInvitesForUser(user: UserDocument): Promise<void> {
     try {
       const displayName = `${user.firstName} ${user.lastName}`.trim();
+      // Snapshot the invited groups *before* linking — afterwards the placeholders
+      // carry a userId and no longer match the by-phone filter.
+      const invitedGroups = await this.repository.findInvitedGroupsByPhone(
+        user.dialCode,
+        user.phoneNumber,
+      );
       const linked = await this.repository.linkInvitedMembersByPhone(
         user.dialCode,
         user.phoneNumber,
@@ -198,11 +205,37 @@ export class GroupsService {
       );
       if (linked > 0) {
         this.logger.info(`Linked ${linked} group invite(s) to user ${user._id.toString()}`);
+        await this.notifyInheritedMemberships(user, invitedGroups);
       }
     } catch (error) {
       this.logger.warn(
         `Failed to link group invites for ${user._id.toString()}: ${(error as Error).message}`,
       );
+    }
+  }
+
+  /**
+   * Tells a freshly-registered user about each group/friendship that was waiting for
+   * them — the awareness + consent surface for the debts they're inheriting. They can
+   * flag any of these from the inbox (see the notifications module).
+   */
+  private async notifyInheritedMemberships(
+    user: UserDocument,
+    groups: GroupDocument[],
+  ): Promise<void> {
+    const userId = user._id.toString();
+    for (const group of groups) {
+      const placeholder = group.members.find(
+        (m) => !m.userId && m.dialCode === user.dialCode && m.phoneNumber === user.phoneNumber,
+      );
+      const other = group.members.find((m) => m._id.toString() !== placeholder?._id.toString());
+      await notificationsService.notifyMembershipInherited({
+        recipientUserId: userId,
+        otherName: other?.displayName,
+        groupName: group.name,
+        groupId: group._id.toString(),
+        isDirect: group.kind === GroupKind.Direct,
+      });
     }
   }
 

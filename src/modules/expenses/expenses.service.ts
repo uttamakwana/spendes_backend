@@ -24,6 +24,8 @@ const toAmount = (value: number): number => Math.round(value * 100) / 100;
 export interface GroupShareExpenseInput {
   userId: string;
   amount: number;
+  /** Cash this member actually paid as the bill's payer (their `paidBy` total); 0 if none. */
+  paidAmount: number;
   currency: string;
   category: string;
   description?: string;
@@ -44,6 +46,12 @@ export interface ExpenseSummary {
   from?: Date;
   to?: Date;
   totalAmount: number;
+  /**
+   * Actual cash paid out of pocket over the window — sums each personal row's `amount`
+   * plus the user's payer share of splits (`paidAmount`), ignoring shares others paid.
+   * Differs from `totalAmount` (consumption/your share) when you front a split.
+   */
+  cashOutflow: number;
   count: number;
   byCategory: (SpendBucket & { category: string })[];
   byPaymentMethod: (SpendBucket & { paymentMethod: PaymentMethod })[];
@@ -166,6 +174,7 @@ export class ExpensesService {
     await this.repository.create({
       userId: new Types.ObjectId(input.userId),
       amount: toAmount(input.amount),
+      paidAmount: toAmount(input.paidAmount),
       currency: input.currency,
       category: input.category,
       description: input.description,
@@ -217,12 +226,13 @@ export class ExpensesService {
 
   async summary(userId: string, query: ExpenseSummaryQuery): Promise<ExpenseSummary> {
     const agg = await this.repository.summarize(userId, { from: query.from, to: query.to });
-    const overall = agg.overall[0] ?? { totalAmount: 0, count: 0 };
+    const overall = agg.overall[0] ?? { totalAmount: 0, cashOutflow: 0, count: 0 };
 
     return {
       from: query.from,
       to: query.to,
       totalAmount: toAmount(overall.totalAmount),
+      cashOutflow: toAmount(overall.cashOutflow ?? 0),
       count: overall.count,
       byCategory: agg.byCategory.map((bucket) => ({
         category: bucket._id,

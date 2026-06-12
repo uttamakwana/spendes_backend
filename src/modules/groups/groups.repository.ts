@@ -73,6 +73,25 @@ export class GroupsRepository extends BaseRepository<GroupDocument> {
   }
 
   /**
+   * Every active group that has an invited-by-phone placeholder for `(dialCode,
+   * phoneNumber)`. Captured just before {@link linkInvitedMembersByPhone} runs so the
+   * newcomer can be told (and given a chance to dispute) what they're inheriting.
+   */
+  findInvitedGroupsByPhone(dialCode: string, phoneNumber: string): Promise<GroupDocument[]> {
+    return this.find({
+      isActive: true,
+      members: {
+        $elemMatch: {
+          dialCode,
+          phoneNumber,
+          userId: { $exists: false },
+          status: GroupMemberStatus.Invited,
+        },
+      },
+    } as FilterQuery<GroupDocument>);
+  }
+
+  /**
    * Promotes every invited-by-phone placeholder matching `(dialCode, phoneNumber)`
    * to an active membership linked to `userId`, across all groups. Called once when
    * that phone registers. Returns how many memberships were linked.

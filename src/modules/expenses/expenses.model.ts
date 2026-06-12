@@ -29,6 +29,15 @@ export interface ExpenseDocument extends BaseDocument {
   notes?: string;
   tags: string[];
   receiptUrl?: string;
+  /**
+   * Cash this user actually paid out of pocket for this expense — distinct from
+   * `amount` (their consumption/share). For a `Personal` row this equals `amount`
+   * (left unset; treated as `amount`). For a `GroupShare` row it is what they paid
+   * as the bill's payer (their `paidBy` total): 0 if someone else paid, or more than
+   * their `amount` if they fronted others' shares. Powers the analytics "cash out" /
+   * cash-flow figure. Optional for backward compatibility with pre-existing rows.
+   */
+  paidAmount?: number;
   /** Whether this was entered directly or materialized from a group split. */
   source: ExpenseSource;
   /** Set when `source` is `GroupShare`: the group + group expense it derives from. */
@@ -55,6 +64,7 @@ const expenseSchema = new Schema<ExpenseDocument>(
     notes: { type: String, trim: true },
     tags: { type: [String], default: [] },
     receiptUrl: { type: String, trim: true },
+    paidAmount: { type: Number, min: 0 },
     source: {
       type: String,
       enum: Object.values(ExpenseSource),
