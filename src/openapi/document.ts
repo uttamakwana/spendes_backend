@@ -76,6 +76,7 @@ import {
 } from '../modules/investments/investments.validation';
 import { InvestmentType } from '../modules/investments/investments.enums';
 import { cashflowQuerySchema } from '../modules/analytics/analytics.validation';
+import { joinWaitlistSchema } from '../modules/waitlist/waitlist.validation';
 import { PaymentMethod } from '../common/enums/payment-method';
 import { ExpenseSource } from '../common/enums/expense-source';
 import { CategoryType } from '../common/enums/category-type';
@@ -542,6 +543,14 @@ const cashflowResponseSchema = z
     net: z.number(),
   })
   .openapi('CashflowResponse');
+
+const waitlistJoinResponseSchema = z
+  .object({
+    email: z.string(),
+    alreadyJoined: z.boolean(),
+    position: z.number(),
+  })
+  .openapi('WaitlistJoinResponse');
 
 const pageMetaSchema = z.object({
   page: z.number(),
@@ -1708,6 +1717,27 @@ export function buildOpenApiDocument(): ReturnType<OpenApiGeneratorV3['generateD
     responses: {
       200: { description: 'Cash-flow trend', ...jsonContent(success(cashflowResponseSchema)) },
       401: { description: 'Unauthorized', ...jsonContent(errorResponseSchema) },
+    },
+  });
+
+  // --- Waitlist ---
+  registry.registerPath({
+    method: 'post',
+    path: '/waitlist',
+    summary: 'Join the early-access waitlist (public, idempotent)',
+    tags: ['Waitlist'],
+    request: { body: jsonContent(joinWaitlistSchema) },
+    responses: {
+      201: {
+        description: 'Joined the waitlist',
+        ...jsonContent(success(waitlistJoinResponseSchema)),
+      },
+      200: {
+        description: 'Email was already on the waitlist',
+        ...jsonContent(success(waitlistJoinResponseSchema)),
+      },
+      400: { description: 'Validation failed', ...jsonContent(errorResponseSchema) },
+      429: { description: 'Too many requests', ...jsonContent(errorResponseSchema) },
     },
   });
 
