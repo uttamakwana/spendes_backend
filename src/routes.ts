@@ -17,6 +17,7 @@ import { analyticsRouter } from './modules/analytics/analytics.routes';
 import { notificationsRouter } from './modules/notifications/notifications.routes';
 import { pushRouter } from './modules/push/push.routes';
 import { waitlistRouter } from './modules/waitlist/waitlist.routes';
+import { adminRouter } from './modules/admin/admin.routes';
 import { healthRouter } from './health/health.routes';
 
 export interface AppInfo {
@@ -64,4 +65,5 @@ apiRouter.use('/analytics', analyticsRouter);
 apiRouter.use('/notifications', notificationsRouter);
 apiRouter.use('/push', pushRouter);
 apiRouter.use('/waitlist', waitlistRouter);
+apiRouter.use('/admin', adminRouter);
 apiRouter.use('/health', healthRouter);
