@@ -1,12 +1,13 @@
 import type { FilterQuery, UpdateQuery } from 'mongoose';
-import { ConflictException } from '../../common/errors/http-exception';
+import { ConflictException, NotFoundException } from '../../common/errors/http-exception';
 import { buildSort, type PaginationQuery } from '../../common/utils/pagination';
 import { paginate } from '../../common/utils/response';
 import type { PaginatedData } from '../../common/types/api-response';
 import { createLogger } from '../../logger';
+import { cascadeDeleteUser, type CascadeResult } from './user-cascade';
 import { toUserResponse, type UserResponse } from './user-response';
-import type { UserDocument } from './users.model';
-import type { UpdateUserInput } from './users.validation';
+import { resolveNotificationPreferences, type UserDocument } from './users.model';
+import type { UpdateNotificationPreferencesInput, UpdateUserInput } from './users.validation';
 import { usersRepository, UsersRepository } from './users.repository';
 
 /** Normalized identity + profile used to provision an account (post OTP verify). */
@@ -71,8 +72,45 @@ export class UsersService {
     return toUserResponse(user);
   }
 
-  async remove(id: string): Promise<void> {
-    await this.repository.deleteById(id);
+  /** Merges a partial notification-preference change into the user's saved set. */
+  async updateNotificationPreferences(
+    id: string,
+    dto: UpdateNotificationPreferencesInput,
+  ): Promise<UserResponse> {
+    const existing = await this.repository.findByIdOrThrow(id);
+    const next = { ...resolveNotificationPreferences(existing.notificationPreferences), ...dto };
+    const user = await this.repository.updateById(id, { notificationPreferences: next });
+    return toUserResponse(user);
+  }
+
+  /**
+   * Permanently deletes a user and every record tied to them — expenses, income,
+   * budgets, EMIs, goals, investments, push tokens, notifications, the groups they
+   * own (with those groups' splits & settlements), the splits/settlements they
+   * authored in others' groups, and their OTP codes. They're also dropped from
+   * groups owned by other people. Reuses the exact cascade shared with the
+   * `db:delete-user` CLI; categories are never touched. Returns the per-collection
+   * breakdown. Backs both the admin delete endpoint and self-service deletion.
+   *
+   * Because the auth middleware re-checks the user exists on every request, removing
+   * the account invalidates all of its access/refresh tokens immediately.
+   */
+  async remove(id: string): Promise<CascadeResult> {
+    const user = await this.repository.findById(id);
+    if (!user) {
+      throw new NotFoundException('Account not found');
+    }
+    return cascadeDeleteUser(
+      { _id: user._id, dialCode: user.dialCode, phoneNumber: user.phoneNumber },
+      { apply: true },
+    );
+  }
+
+  /** Self-service account deletion — the shared cascade, with an audit log line. */
+  async deleteAccount(userId: string): Promise<CascadeResult> {
+    const result = await this.remove(userId);
+    this.logger.info(`Account self-deleted: ${userId} — ${result.total} document(s) removed`);
+    return result;
   }
 
   // ---------------------------------------------------------------------------

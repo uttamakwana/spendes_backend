@@ -5,6 +5,7 @@ import { paginate } from '../../common/utils/response';
 import type { PaginatedData } from '../../common/types/api-response';
 import { createLogger } from '../../logger';
 import { pushService } from '../push/push.service';
+import { resolveNotificationPreferences, type NotificationPreferences } from '../users/users.model';
 import { usersService } from '../users/users.service';
 import type { NotificationDocument } from './notification.model';
 import { toNotificationResponse, type NotificationResponse } from './notification-response';
@@ -17,6 +18,19 @@ const DISPUTABLE = new Set<NotificationType>([
   NotificationType.SplitAdded,
   NotificationType.MembershipInherited,
 ]);
+
+/**
+ * Which push-preference category each notification type belongs to. All social
+ * activity maps to `splits`; the exhaustive Record forces a decision when a new
+ * type is added. Gates the device push only — never the in-app inbox record.
+ */
+const PUSH_CATEGORY: Record<NotificationType, keyof NotificationPreferences> = {
+  [NotificationType.FriendAdded]: 'splits',
+  [NotificationType.SplitAdded]: 'splits',
+  [NotificationType.SettlementRecorded]: 'splits',
+  [NotificationType.SplitDisputed]: 'splits',
+  [NotificationType.MembershipInherited]: 'splits',
+};
 
 interface FriendAddedInput {
   recipientUserId: string;
@@ -230,18 +244,33 @@ export class NotificationsService {
   private async emit(doc: Partial<Omit<NotificationDocument, '_id'>>): Promise<void> {
     try {
       const created = await this.repository.create(doc);
-      void pushService.sendToUser(created.userId.toString(), {
-        title: created.title,
-        body: created.body,
-        data: {
-          type: created.type,
-          notificationId: created._id.toString(),
-          groupId: created.groupId?.toString(),
-          isDirect: created.isDirect ?? false,
-        },
-      });
+      // The inbox record above is always written; the device push respects the
+      // recipient's per-category opt-out.
+      if (await this.pushAllowed(created.userId.toString(), created.type)) {
+        void pushService.sendToUser(created.userId.toString(), {
+          title: created.title,
+          body: created.body,
+          data: {
+            type: created.type,
+            notificationId: created._id.toString(),
+            groupId: created.groupId?.toString(),
+            isDirect: created.isDirect ?? false,
+          },
+        });
+      }
     } catch (error) {
       this.logger.warn(`Failed to create notification: ${(error as Error).message}`);
+    }
+  }
+
+  /** Whether the recipient still wants a *device push* for this category. Inbox is unaffected. */
+  private async pushAllowed(userId: string, type: NotificationType): Promise<boolean> {
+    try {
+      const user = await usersService.findEntityById(userId);
+      return resolveNotificationPreferences(user?.notificationPreferences)[PUSH_CATEGORY[type]];
+    } catch {
+      // A preference lookup must never suppress delivery on its own failure.
+      return true;
     }
   }
 

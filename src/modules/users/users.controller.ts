@@ -2,7 +2,7 @@ import type { Request, Response } from 'express';
 import { asyncHandler } from '../../common/middleware/async-handler';
 import { sendSuccess } from '../../common/utils/response';
 import type { PaginationQuery } from '../../common/utils/pagination';
-import type { UpdateUserInput } from './users.validation';
+import type { UpdateNotificationPreferencesInput, UpdateUserInput } from './users.validation';
 import { usersService } from './users.service';
 
 /** GET /users/me — the authenticated user's own profile. */
@@ -15,6 +15,21 @@ export const getMe = asyncHandler(async (req: Request, res: Response) => {
 export const updateMe = asyncHandler(async (req: Request, res: Response) => {
   const user = await usersService.update(req.user!.id, req.body as UpdateUserInput);
   sendSuccess(res, req, user, 'Profile updated successfully');
+});
+
+/** PATCH /users/me/notification-preferences — update the authenticated user's push opt-outs. */
+export const updateMyNotificationPreferences = asyncHandler(async (req: Request, res: Response) => {
+  const user = await usersService.updateNotificationPreferences(
+    req.user!.id,
+    req.body as UpdateNotificationPreferencesInput,
+  );
+  sendSuccess(res, req, user, 'Notification preferences updated');
+});
+
+/** DELETE /users/me — permanently delete the authenticated user's own account and all their data. */
+export const deleteMe = asyncHandler(async (req: Request, res: Response) => {
+  await usersService.deleteAccount(req.user!.id);
+  sendSuccess(res, req, { deleted: true }, 'Your account has been permanently deleted');
 });
 
 /** GET /users — list users (admin only). */

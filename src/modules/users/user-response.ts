@@ -1,6 +1,10 @@
 import type { Role } from '../../common/enums/role';
 import { PlanType } from '../../common/enums/plan-type';
-import type { UserDocument } from './users.model';
+import {
+  resolveNotificationPreferences,
+  type NotificationPreferences,
+  type UserDocument,
+} from './users.model';
 
 /**
  * The public-facing representation of a user. Built explicitly via
@@ -20,6 +24,7 @@ export interface UserResponse {
   roles: Role[];
   plan: PlanType;
   upiId?: string;
+  notificationPreferences: NotificationPreferences;
   defaultCurrency: string;
   isPhoneVerified: boolean;
   isEmailVerified: boolean;
@@ -44,6 +49,7 @@ export function toUserResponse(user: UserDocument): UserResponse {
     roles: user.roles,
     plan: user.plan ?? PlanType.Free,
     upiId: user.upiId,
+    notificationPreferences: resolveNotificationPreferences(user.notificationPreferences),
     defaultCurrency: user.defaultCurrency,
     isPhoneVerified: user.isPhoneVerified,
     isEmailVerified: user.isEmailVerified,
