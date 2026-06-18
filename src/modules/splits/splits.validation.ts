@@ -154,6 +154,9 @@ export const createSettlementSchema = z.object({
   method: z.nativeEnum(PaymentMethod).optional(),
   note: z.string().trim().max(280).optional(),
   settledAt: z.coerce.date().optional(),
+  // UPI transaction reference from the settle-up intent — used for idempotency so the
+  // same payment records once even if the client confirms it more than once.
+  reference: z.string().trim().min(1).max(64).optional(),
 });
 
 export type CreateSettlementInput = z.infer<typeof createSettlementSchema>;

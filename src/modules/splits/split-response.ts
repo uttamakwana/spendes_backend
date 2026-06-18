@@ -68,6 +68,7 @@ export interface SettlementResponse {
   currency: string;
   method: PaymentMethod;
   note?: string;
+  reference?: string;
   settledAt: Date;
   createdByUserId: string;
   createdAt: Date;
@@ -85,6 +86,7 @@ export function toSettlementResponse(settlement: SettlementDocument): Settlement
     currency: settlement.currency,
     method: settlement.method,
     note: settlement.note,
+    reference: settlement.reference,
     settledAt: settlement.settledAt,
     createdByUserId: settlement.createdByUserId.toString(),
     createdAt: settlement.createdAt,
@@ -130,4 +132,6 @@ export interface SettlementIntentResponse {
   amount: number;
   currency: string;
   note?: string;
+  /** Transaction reference baked into the intent; pass it back when recording the settlement. */
+  reference: string;
 }

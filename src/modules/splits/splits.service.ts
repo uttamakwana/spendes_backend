@@ -1,3 +1,4 @@
+import { randomUUID } from 'crypto';
 import { Types, type UpdateQuery } from 'mongoose';
 import { BadRequestException, ForbiddenException } from '../../common/errors/http-exception';
 import { buildSort } from '../../common/utils/pagination';
@@ -179,6 +180,20 @@ export class SplitsService {
     }
     this.assertMembersPresent(group, [fromMemberId, toMemberId]);
 
+    // Idempotency: the same UPI settle-up (identified by its transaction reference)
+    // records exactly once, even if the client confirms it twice — e.g. the
+    // return-from-UPI prompt plus a manual "mark as paid". Cash/manual settlements
+    // carry no reference and are never deduped.
+    if (dto.reference) {
+      const existing = await this.settlements.findByReference(group._id.toString(), dto.reference);
+      if (existing) {
+        this.logger.info(
+          `Settlement already recorded for reference ${dto.reference} (${existing._id.toString()}); returning it`,
+        );
+        return toSettlementResponse(existing);
+      }
+    }
+
     const settlement = await this.settlements.create({
       groupId: group._id,
       fromMemberId: new Types.ObjectId(fromMemberId),
@@ -187,6 +202,7 @@ export class SplitsService {
       currency: dto.currency?.toUpperCase() ?? group.currency,
       method: dto.method,
       note: dto.note,
+      reference: dto.reference,
       settledAt: dto.settledAt ?? new Date(),
       createdByUserId: new Types.ObjectId(userId),
     });
@@ -241,13 +257,17 @@ export class SplitsService {
       throw new BadRequestException('This member has not added a UPI id to receive payments');
     }
 
+    // A unique per-payment reference (the UPI `tr`). The client passes it back when
+    // recording, so a payment correlates to one settlement and can't double-record.
+    const reference = randomUUID().replace(/-/g, '');
+
     const intent = paymentsService.createUpiIntent({
       payeeVpa: payeeUser.upiId,
       payeeName: payee.displayName,
       amount: dto.amount,
       currency: group.currency,
       note: dto.note ?? `Settling up in ${group.name}`,
-      transactionRef: group._id.toString(),
+      transactionRef: reference,
     });
 
     return {
@@ -259,6 +279,7 @@ export class SplitsService {
       amount: intent.amount,
       currency: intent.currency,
       note: intent.note,
+      reference,
     };
   }
 
