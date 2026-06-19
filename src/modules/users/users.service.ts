@@ -4,6 +4,7 @@ import { buildSort, type PaginationQuery } from '../../common/utils/pagination';
 import { paginate } from '../../common/utils/response';
 import type { PaginatedData } from '../../common/types/api-response';
 import { createLogger } from '../../logger';
+import { storageService } from '../storage/storage.service';
 import { cascadeDeleteUser, type CascadeResult } from './user-cascade';
 import { toUserResponse, type UserResponse } from './user-response';
 import { resolveNotificationPreferences, type UserDocument } from './users.model';
@@ -80,6 +81,47 @@ export class UsersService {
     const existing = await this.repository.findByIdOrThrow(id);
     const next = { ...resolveNotificationPreferences(existing.notificationPreferences), ...dto };
     const user = await this.repository.updateById(id, { notificationPreferences: next });
+    return toUserResponse(user);
+  }
+
+  /**
+   * Sets a new profile photo: stores the bytes via the configured storage provider,
+   * points `avatarUrl`/`avatarKey` at the new file, and best-effort deletes the old
+   * one (never blocks the response). The image is validated/size-limited upstream.
+   */
+  async setAvatar(
+    id: string,
+    file: { buffer: Buffer; mimetype: string },
+    baseUrl?: string,
+  ): Promise<UserResponse> {
+    const existing = await this.repository.findByIdOrThrow(id);
+    const stored = await storageService.upload({
+      buffer: file.buffer,
+      mimetype: file.mimetype,
+      keyHint: id,
+      baseUrl,
+    });
+    const previousKey = existing.avatarKey;
+    const user = await this.repository.updateById(id, {
+      avatarUrl: stored.url,
+      avatarKey: stored.key,
+    });
+    if (previousKey && previousKey !== stored.key) {
+      void storageService.remove(previousKey);
+    }
+    this.logger.info(`Avatar updated for ${id}`);
+    return toUserResponse(user);
+  }
+
+  /** Removes the profile photo and best-effort deletes the stored file. */
+  async removeAvatar(id: string): Promise<UserResponse> {
+    const existing = await this.repository.findByIdOrThrow(id);
+    if (existing.avatarKey) {
+      void storageService.remove(existing.avatarKey);
+    }
+    const user = await this.repository.updateById(id, {
+      $unset: { avatarUrl: 1, avatarKey: 1 },
+    } as UpdateQuery<UserDocument>);
     return toUserResponse(user);
   }
 

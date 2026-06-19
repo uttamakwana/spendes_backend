@@ -11,6 +11,7 @@ import { requestId } from './common/middleware/request-id';
 import { requestLogger } from './common/middleware/request-logger';
 import { timeout } from './common/middleware/timeout';
 import { buildOpenApiDocument } from './openapi/document';
+import { UPLOADS_ROOT } from './modules/storage/local.provider';
 import { apiRouter } from './routes';
 
 /**
@@ -46,6 +47,18 @@ export function createApp(): Express {
 
   // Abort hung requests with a clean 408.
   app.use(timeout());
+
+  // Serve locally-stored uploads (avatars) when STORAGE_PROVIDER=local. The
+  // cross-origin resource policy lets the mobile app load these images; in
+  // production Cloudinary serves avatars from its own CDN and this is unused.
+  app.use(
+    '/uploads',
+    (_req, res, next) => {
+      res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
+      next();
+    },
+    express.static(UPLOADS_ROOT, { index: false, maxAge: '7d' }),
+  );
 
   // OpenAPI / Swagger docs (served outside the API prefix, like before).
   if (config.swagger.enabled) {

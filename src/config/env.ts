@@ -30,6 +30,14 @@ export enum PaymentProviderName {
   Cashfree = 'cashfree',
 }
 
+/** File-storage backends for user uploads (avatars). */
+export enum StorageProviderName {
+  /** Local filesystem + static serving — development only (a prod disk is ephemeral). */
+  Local = 'local',
+  /** Cloudinary — durable, CDN-backed, with built-in image transforms. */
+  Cloudinary = 'cloudinary',
+}
+
 /**
  * Parses common truthy string representations into a real boolean. Needed because
  * everything coming from `process.env` is a string.
@@ -105,6 +113,18 @@ const envSchema = z.object({
 
   // --- Payments (settle-up rail) ---
   PAYMENT_PROVIDER: z.nativeEnum(PaymentProviderName).default(PaymentProviderName.UpiIntent),
+
+  // --- File storage (avatar uploads) ---
+  STORAGE_PROVIDER: z.nativeEnum(StorageProviderName).default(StorageProviderName.Local),
+  // Absolute origin used to build URLs for locally-stored files (must be reachable by
+  // the client — set to your ngrok/LAN URL in dev). Defaults to http://localhost:PORT.
+  PUBLIC_BASE_URL: z.string().url().optional(),
+  UPLOAD_MAX_BYTES: intFromString(5 * 1024 * 1024).pipe(z.number().int().min(1)),
+  // Required only when STORAGE_PROVIDER=cloudinary (validated in the provider).
+  CLOUDINARY_CLOUD_NAME: z.string().optional(),
+  CLOUDINARY_API_KEY: z.string().optional(),
+  CLOUDINARY_API_SECRET: z.string().optional(),
+  CLOUDINARY_FOLDER: z.string().default('spendes/avatars'),
 
   // --- Push notifications (Expo push service) ---
   // Optional. Only required if "Enhanced Security for Push Notifications" is

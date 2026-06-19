@@ -1,6 +1,6 @@
-import { env, Environment, SmsProviderName, PaymentProviderName } from './env';
+import { env, Environment, SmsProviderName, PaymentProviderName, StorageProviderName } from './env';
 
-export { Environment, SmsProviderName, PaymentProviderName } from './env';
+export { Environment, SmsProviderName, PaymentProviderName, StorageProviderName } from './env';
 
 /**
  * Splits a comma-separated env value into a list, or returns the literal `*`
@@ -75,6 +75,23 @@ export interface PaymentsConfig {
   provider: PaymentProviderName;
 }
 
+export interface StorageConfig {
+  provider: StorageProviderName;
+  /**
+   * Explicit origin for local-filesystem file URLs. Usually left unset — the URL is
+   * then derived from the request so it auto-matches however the client reached the
+   * server (ngrok / LAN IP / localhost). Set this only to force a fixed origin.
+   */
+  publicBaseUrl?: string;
+  uploadMaxBytes: number;
+  cloudinary: {
+    cloudName?: string;
+    apiKey?: string;
+    apiSecret?: string;
+    folder: string;
+  };
+}
+
 export interface PushConfig {
   /** Expo access token; set only when "enhanced security" push is enabled. */
   expoAccessToken?: string;
@@ -110,6 +127,7 @@ export interface AppConfiguration {
   otp: OtpConfig;
   sms: SmsConfig;
   payments: PaymentsConfig;
+  storage: StorageConfig;
   push: PushConfig;
   entitlements: EntitlementsConfig;
   phone: PhoneConfig;
@@ -166,6 +184,17 @@ export const config: AppConfiguration = {
   },
   payments: {
     provider: env.PAYMENT_PROVIDER,
+  },
+  storage: {
+    provider: env.STORAGE_PROVIDER,
+    publicBaseUrl: env.PUBLIC_BASE_URL ? env.PUBLIC_BASE_URL.replace(/\/$/, '') : undefined,
+    uploadMaxBytes: env.UPLOAD_MAX_BYTES,
+    cloudinary: {
+      cloudName: env.CLOUDINARY_CLOUD_NAME || undefined,
+      apiKey: env.CLOUDINARY_API_KEY || undefined,
+      apiSecret: env.CLOUDINARY_API_SECRET || undefined,
+      folder: env.CLOUDINARY_FOLDER,
+    },
   },
   push: {
     expoAccessToken: env.EXPO_ACCESS_TOKEN || undefined,

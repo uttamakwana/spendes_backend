@@ -42,7 +42,10 @@ export interface UserDocument extends BaseDocument {
   email?: string;
   firstName: string;
   lastName: string;
+  /** Public URL of the profile photo (rendered by clients). */
   avatarUrl?: string;
+  /** Storage object key/public-id for the avatar — internal, used to delete/replace it. */
+  avatarKey?: string;
   roles: Role[];
   /** Subscription tier. Defaults to `free`; paid gating stays off until Pro ships. */
   plan: PlanType;
@@ -69,6 +72,7 @@ const userSchema = new Schema<UserDocument>(
     firstName: { type: String, required: true, trim: true },
     lastName: { type: String, required: true, trim: true },
     avatarUrl: { type: String },
+    avatarKey: { type: String },
     roles: { type: [String], enum: Object.values(Role), default: [Role.User] },
     plan: { type: String, enum: Object.values(PlanType), default: PlanType.Free },
     upiId: { type: String, trim: true },
