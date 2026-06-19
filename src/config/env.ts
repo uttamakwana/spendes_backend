@@ -4,7 +4,7 @@ import { z } from 'zod';
 // Load environment files before anything reads `process.env`. `.env.local` is
 // loaded first and wins, mirroring the previous `envFilePath: ['.env.local', '.env']`
 // (dotenv never overrides an already-set variable).
-loadEnv({ path: '.env.local' });
+// loadEnv({ path: '.env.local' });
 loadEnv({ path: '.env' });
 
 /** Supported runtime environments. */
