@@ -7,6 +7,7 @@ import { groupsRepository } from '../groups/groups.repository';
 import { groupsService } from '../groups/groups.service';
 import { notificationsService } from '../notifications/notifications.service';
 import { splitsService } from '../splits/splits.service';
+import { usersService } from '../users/users.service';
 import type {
   GroupExpenseResponse,
   SettlementIntentResponse,
@@ -142,12 +143,19 @@ export class FriendsService {
 
     const balances = await splitsService.getBalances(userId, group._id.toString());
 
+    // A registered friend's avatar lives on their user doc (it can change after the
+    // friendship is created, so we read it live rather than denormalize onto the member).
+    const friendUser = friend.userId
+      ? await usersService.findEntityById(friend.userId.toString())
+      : null;
+
     return {
       friendshipId: group._id.toString(),
       myMemberId: me._id.toString(),
       friendMemberId: friend._id.toString(),
       displayName: friend.displayName,
       userId: friend.userId?.toString(),
+      avatarUrl: friendUser?.avatarUrl,
       isRegistered: Boolean(friend.userId),
       dialCode: friend.dialCode,
       phoneNumber: friend.phoneNumber,
