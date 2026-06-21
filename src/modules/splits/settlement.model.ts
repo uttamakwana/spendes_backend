@@ -17,6 +17,12 @@ export interface SettlementDocument extends BaseDocument {
   currency: string;
   method: PaymentMethod;
   note?: string;
+  /**
+   * Idempotency / correlation key for a UPI settle-up — the `tr` baked into the
+   * payment intent. Lets the same payment record exactly once even if the client
+   * confirms more than once, and ties the record back to the UPI transaction.
+   */
+  reference?: string;
   settledAt: Date;
   /** The user account that recorded the settlement. */
   createdByUserId: Types.ObjectId;
@@ -33,6 +39,7 @@ const settlementSchema = new Schema<SettlementDocument>(
     currency: { type: String, required: true, uppercase: true, trim: true, default: 'INR' },
     method: { type: String, enum: Object.values(PaymentMethod), default: PaymentMethod.Upi },
     note: { type: String, trim: true },
+    reference: { type: String, trim: true },
     settledAt: { type: Date, required: true, default: () => new Date() },
     createdByUserId: { type: Schema.Types.ObjectId, ref: 'User', required: true },
   },
@@ -41,5 +48,12 @@ const settlementSchema = new Schema<SettlementDocument>(
 
 // Primary access pattern: a group's settlements, newest first.
 settlementSchema.index({ groupId: 1, settledAt: -1 });
+
+// Idempotency: at most one settlement per (group, reference). Partial so the many
+// cash/manual settlements without a reference are unaffected.
+settlementSchema.index(
+  { groupId: 1, reference: 1 },
+  { unique: true, partialFilterExpression: { reference: { $type: 'string' } } },
+);
 
 export const SettlementModel = model<SettlementDocument>('Settlement', settlementSchema);

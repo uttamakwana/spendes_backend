@@ -1417,7 +1417,7 @@
             "header": [{ "key": "Content-Type", "value": "application/json" }],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"name\": \"HDFC Index Fund\",\n  \"type\": \"mutual_fund\",\n  \"investedAmount\": 50000,\n  \"currentValue\": 58000,\n  \"platform\": \"Groww\"\n}",
+              "raw": "{\n  \"name\": \"HDFC Index Fund\",\n  \"type\": \"mutual_fund\",\n  \"investedAmount\": 50000,\n  \"currentValue\": 58000,\n  \"platform\": \"Groww\",\n  \"sip\": {\n    \"amount\": 5000,\n    \"frequency\": \"monthly\",\n    \"startDate\": \"2026-01-05\"\n  }\n}",
               "options": { "raw": { "language": "json" } }
             },
             "url": {
@@ -1425,7 +1425,7 @@
               "host": ["{{baseUrl}}"],
               "path": ["investments"]
             },
-            "description": "type = mutual_fund | stock | fd | gold | crypto | bond | real_estate | other. gainLoss/gainLossPct are computed; refresh currentValue via PATCH."
+            "description": "type = mutual_fund | stock | fd | gold | crypto | bond | real_estate | other. gainLoss/gainLossPct are computed; refresh currentValue via PATCH. Optional `sip` (amount + frequency weekly|monthly|quarterly|yearly + startDate) attaches a recurring plan; the initial investedAmount is auto-seeded as the first contribution, and the response carries the live SIP schedule (nextContributionDate, expected vs recorded installments)."
           }
         },
         {
@@ -1468,6 +1468,24 @@
               "host": ["{{baseUrl}}"],
               "path": ["investments", "{{investmentId}}"]
             }
+          }
+        },
+        {
+          "name": "Record Contribution (SIP installment)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"amount\": 5000,\n  \"note\": \"SIP June\",\n  \"currentValue\": 64000\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/investments/{{investmentId}}/contribute",
+              "host": ["{{baseUrl}}"],
+              "path": ["investments", "{{investmentId}}", "contribute"]
+            },
+            "description": "Records a SIP installment / top-up. investedAmount increases by amount and the contribution is appended to history. Optional currentValue refreshes the market value in the same call. investedAt defaults to now."
           }
         },
         {
@@ -1529,6 +1547,73 @@
               "query": [{ "key": "months", "value": "6" }]
             },
             "description": "Income vs expense per month across the trailing N months (1-24)."
+          }
+        },
+        {
+          "name": "Goal Feasibility",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/analytics/goals",
+              "host": ["{{baseUrl}}"],
+              "path": ["analytics", "goals"]
+            },
+            "description": "Can the user reach their goals? Returns monthly capacity (trailing-3-month avg income/expense minus EMI + SIP commitments = disposableForGoals) and, per active goal, the requiredMonthlySaving, onTrack flag and shortfall, plus an aggregate allOnTrack."
+          }
+        }
+      ]
+    },
+    {
+      "name": "App",
+      "item": [
+        {
+          "name": "Check App Version (public)",
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/app/version?platform=android&version=1.0.0",
+              "host": ["{{baseUrl}}"],
+              "path": ["app", "version"],
+              "query": [
+                { "key": "platform", "value": "android" },
+                { "key": "version", "value": "1.0.0" }
+              ]
+            },
+            "description": "Called by the mobile app on launch (no auth). platform = ios | android, version = the installed build. Returns updateAvailable (soft nudge), forceUpdate (hard gate when older than minSupportedVersion), storeUrl, releaseNotes and maintenanceMode. Fails open (no prompt) when a platform has no config yet."
+          }
+        },
+        {
+          "name": "List Version Configs (admin)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/app/version/config",
+              "host": ["{{baseUrl}}"],
+              "path": ["app", "version", "config"]
+            },
+            "description": "Admin-only. Every platform's release config."
+          }
+        },
+        {
+          "name": "Set Version Config (admin)",
+          "request": {
+            "method": "PUT",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"latestVersion\": \"2.1.0\",\n  \"minSupportedVersion\": \"2.0.0\",\n  \"storeUrl\": \"https://play.google.com/store/apps/details?id=com.spendes\",\n  \"releaseNotes\": \"Faster sync and bug fixes.\",\n  \"maintenanceMode\": false\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/app/version/android",
+              "host": ["{{baseUrl}}"],
+              "path": ["app", "version", "android"]
+            },
+            "description": "Admin-only upsert of a platform's thresholds (:platform = ios | android). Bump latestVersion when a build ships; raise minSupportedVersion to force old installs to update. Needs an admin user (set roles in Mongo, re-login)."
           }
         }
       ]

@@ -3,6 +3,7 @@ import { asyncHandler } from '../../common/middleware/async-handler';
 import { sendSuccess } from '../../common/utils/response';
 import { investmentsService } from './investments.service';
 import type {
+  ContributeInvestmentInput,
   CreateInvestmentInput,
   ListInvestmentsQuery,
   UpdateInvestmentInput,
@@ -46,6 +47,16 @@ export const updateInvestment = asyncHandler(async (req: Request, res: Response)
     req.body as UpdateInvestmentInput,
   );
   sendSuccess(res, req, investment, 'Investment updated successfully');
+});
+
+/** POST /investments/:id/contribute — record a SIP installment / top-up (and optionally refresh value). */
+export const contributeInvestment = asyncHandler(async (req: Request, res: Response) => {
+  const investment = await investmentsService.contribute(
+    req.user!.id,
+    req.params.id as string,
+    req.body as ContributeInvestmentInput,
+  );
+  sendSuccess(res, req, investment, 'Contribution recorded successfully', 201);
 });
 
 /** DELETE /investments/:id — remove a holding. */

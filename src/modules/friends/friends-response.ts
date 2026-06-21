@@ -11,6 +11,8 @@ export interface FriendResponse {
   friendMemberId: string;
   displayName: string;
   userId?: string;
+  /** The friend's profile photo URL, if they're a registered user who set one. */
+  avatarUrl?: string;
   isRegistered: boolean;
   dialCode?: string;
   phoneNumber?: string;

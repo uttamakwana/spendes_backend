@@ -40,3 +40,24 @@ export const updateUserSchema = z
   .partial();
 
 export type UpdateUserInput = z.infer<typeof updateUserSchema>;
+
+/**
+ * Notification-preference update (`PATCH /users/me/notification-preferences`).
+ * Partial: send only the keys you're changing. These gate *push* delivery only —
+ * the in-app inbox always records activity.
+ */
+export const updateNotificationPreferencesSchema = z
+  .object({
+    reminders: z.boolean(),
+    splits: z.boolean(),
+    budgets: z.boolean(),
+    summary: z.boolean(),
+  })
+  .partial()
+  .refine((v) => Object.keys(v).length > 0, {
+    message: 'Provide at least one preference to update',
+  });
+
+export type UpdateNotificationPreferencesInput = z.infer<
+  typeof updateNotificationPreferencesSchema
+>;

@@ -32,6 +32,12 @@ export class SettlementsRepository extends BaseRepository<SettlementDocument> {
   findAllForGroup(groupId: string): Promise<SettlementDocument[]> {
     return this.find({ groupId } as FilterQuery<SettlementDocument>);
   }
+
+  /** The settlement matching a UPI transaction reference within a group, if any (idempotency). */
+  async findByReference(groupId: string, reference: string): Promise<SettlementDocument | null> {
+    const [doc] = await this.find({ groupId, reference } as FilterQuery<SettlementDocument>);
+    return doc ?? null;
+  }
 }
 
 export const settlementsRepository = new SettlementsRepository();
