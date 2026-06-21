@@ -42,6 +42,14 @@ export class GoalsRepository extends BaseRepository<GoalDocument> {
     });
   }
 
+  /** A user's active goals — used by analytics to assess goal feasibility. */
+  findActiveForUser(userId: string): Promise<GoalDocument[]> {
+    return this.find({
+      userId: new Types.ObjectId(userId),
+      isActive: true,
+    } as FilterQuery<GoalDocument>);
+  }
+
   /** Total saved across a user's active goals — an asset line for the analytics net worth. */
   async sumCurrentAmount(userId: string): Promise<number> {
     const [result] = await this.aggregate<{ total: number }>([

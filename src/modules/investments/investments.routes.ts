@@ -3,6 +3,7 @@ import { validate } from '../../common/middleware/validate';
 import { idParamSchema } from '../../common/utils/object-id';
 import { authenticate } from '../auth/auth.middleware';
 import {
+  contributeInvestment,
   createInvestment,
   deleteInvestment,
   getInvestment,
@@ -11,6 +12,7 @@ import {
   updateInvestment,
 } from './investments.controller';
 import {
+  contributeInvestmentSchema,
   createInvestmentSchema,
   listInvestmentsQuerySchema,
   updateInvestmentSchema,
@@ -28,6 +30,11 @@ investmentsRouter.get('/', validate({ query: listInvestmentsQuerySchema }), list
 investmentsRouter.get('/summary', getInvestmentSummary);
 
 investmentsRouter.get('/:id', validate({ params: idParamSchema }), getInvestment);
+investmentsRouter.post(
+  '/:id/contribute',
+  validate({ params: idParamSchema, body: contributeInvestmentSchema }),
+  contributeInvestment,
+);
 investmentsRouter.patch(
   '/:id',
   validate({ params: idParamSchema, body: updateInvestmentSchema }),

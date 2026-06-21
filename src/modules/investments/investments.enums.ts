@@ -9,3 +9,15 @@ export enum InvestmentType {
   RealEstate = 'real_estate',
   Other = 'other',
 }
+
+/**
+ * Cadence of a recurring contribution plan (SIP). String values mirror
+ * `EmiFrequency` and the shared `RecurrenceFrequency` so the recurrence helpers
+ * apply unchanged.
+ */
+export enum SipFrequency {
+  Weekly = 'weekly',
+  Monthly = 'monthly',
+  Quarterly = 'quarterly',
+  Yearly = 'yearly',
+}

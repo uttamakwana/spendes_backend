@@ -16,3 +16,9 @@ export const getCashflow = asyncHandler(async (req: Request, res: Response) => {
   const cashflow = await analyticsService.cashflow(req.user!.id, months);
   sendSuccess(res, req, cashflow, 'Cash-flow trend retrieved successfully');
 });
+
+/** GET /analytics/goals — can the user reach their goals given monthly disposable income. */
+export const getGoalFeasibility = asyncHandler(async (req: Request, res: Response) => {
+  const feasibility = await analyticsService.goalFeasibility(req.user!.id);
+  sendSuccess(res, req, feasibility, 'Goal feasibility retrieved successfully');
+});

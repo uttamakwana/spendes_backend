@@ -1,6 +1,10 @@
 import { type FilterQuery, Types, type UpdateQuery } from 'mongoose';
 import { BaseRepository } from '../../database/base.repository';
-import { InvestmentModel, type InvestmentDocument } from './investments.model';
+import {
+  InvestmentModel,
+  type InvestmentContribution,
+  type InvestmentDocument,
+} from './investments.model';
 
 /**
  * Data access for investments. Inherits generic CRUD + pagination and adds
@@ -28,6 +32,27 @@ export class InvestmentsRepository extends BaseRepository<InvestmentDocument> {
   /** Deletes a holding, scoped to its owner; throws 404 if not found/owned. */
   deleteOwned(id: string, userId: string): Promise<InvestmentDocument> {
     return this.deleteOne({ _id: id, userId } as FilterQuery<InvestmentDocument>);
+  }
+
+  /**
+   * Records a contribution and bumps the denormalized `investedAmount` atomically,
+   * optionally refreshing `currentValue` in the same update; throws 404 if not
+   * found/owned. Mirrors the goals contribution pattern.
+   */
+  addContribution(
+    id: string,
+    userId: string,
+    contribution: InvestmentContribution,
+    currentValue?: number,
+  ): Promise<InvestmentDocument> {
+    const update: UpdateQuery<InvestmentDocument> = {
+      $push: { contributions: contribution },
+      $inc: { investedAmount: contribution.amount },
+    };
+    if (currentValue !== undefined) {
+      update.$set = { currentValue };
+    }
+    return this.findOneAndUpdate({ _id: id, userId } as FilterQuery<InvestmentDocument>, update);
   }
 
   /** All of a user's active holdings (used to compute the portfolio summary). */

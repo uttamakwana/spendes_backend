@@ -272,11 +272,55 @@ Check 'overview monthly commitment = 16000' (Approx $ov.body.data.commitments.to
 Check 'overview portfolio value = 16000' (Approx $ov.body.data.portfolio.totalCurrentValue 16000) "v=$($ov.body.data.portfolio.totalCurrentValue)"
 Check 'overview net-worth assets = 26000 (16000+10000)' (Approx $ov.body.data.netWorth.assets 26000) "a=$($ov.body.data.netWorth.assets)"
 Check 'overview top category = Group' ($ov.body.data.topCategories[0].category -eq 'Group') "top=$($ov.body.data.topCategories[0].category)"
+# New interconnections: owe/owed balances (Frank settled -> net 0) + compact goals readout
+Check 'overview balances net = 0 (friend settled)' (Approx $ov.body.data.balances.net 0) "net=$($ov.body.data.balances.net)"
+Check 'overview goals.activeCount = 1' ($ov.body.data.goals.activeCount -eq 1) "n=$($ov.body.data.goals.activeCount)"
+Check 'overview goals allOnTrack (achieved goal needs 0)' ($ov.body.data.goals.allOnTrack -eq $true) "allOnTrack=$($ov.body.data.goals.allOnTrack)"
+Check 'overview portfolio.totalMonthlySip = 0 (no SIP yet)' (Approx $ov.body.data.portfolio.totalMonthlySip 0) "sip=$($ov.body.data.portfolio.totalMonthlySip)"
 
 $cf = Api 'GET' '/analytics/cashflow?months=6' $tokenA $null
 Check 'cashflow has 6 months' ($cf.body.data.series.Count -eq 6) "n=$($cf.body.data.series.Count)"
 Check 'cashflow total income = 50000' (Approx $cf.body.data.totalIncome 50000) "ti=$($cf.body.data.totalIncome)"
 Check 'cashflow total expense = 1150.5' (Approx $cf.body.data.totalExpense 1150.5) "te=$($cf.body.data.totalExpense)"
+
+# 18. Investments SIP — recurring plan + contribution history
+$invSip = Api 'POST' '/investments' $tokenA @{ name = 'SIP Index'; type = 'mutual_fund'; investedAmount = 6000; currentValue = 6000; sip = @{ amount = 2000; frequency = 'monthly'; startDate = '2026-01-05' } }
+Check 'create SIP investment' ($invSip.ok) "status=$($invSip.status)"
+$invSipId = $invSip.body.data.id
+Check 'SIP monthlyEquivalent = 2000' (Approx $invSip.body.data.sip.monthlyEquivalent 2000) "me=$($invSip.body.data.sip.monthlyEquivalent)"
+Check 'initial contribution seeded (1)' ($invSip.body.data.contributions.Count -eq 1) "n=$($invSip.body.data.contributions.Count)"
+Check 'investedAmount = sum(contributions) = 6000' (Approx $invSip.body.data.investedAmount 6000) "inv=$($invSip.body.data.investedAmount)"
+Check 'SIP has a nextContributionDate' ($null -ne $invSip.body.data.sip.nextContributionDate) "next=$($invSip.body.data.sip.nextContributionDate)"
+
+# Record one SIP installment and refresh market value in the same call
+$contrib = Api 'POST' "/investments/$invSipId/contribute" $tokenA @{ amount = 2000; note = 'SIP installment'; currentValue = 8500 }
+Check 'contribution recorded (201)' ($contrib.status -eq 200 -or $contrib.ok) "status=$($contrib.status)"
+Check 'investedAmount grew to 8000' (Approx $contrib.body.data.investedAmount 8000) "inv=$($contrib.body.data.investedAmount)"
+Check 'now 2 contributions' ($contrib.body.data.contributions.Count -eq 2) "n=$($contrib.body.data.contributions.Count)"
+Check 'currentValue refreshed to 8500' (Approx $contrib.body.data.currentValue 8500) "val=$($contrib.body.data.currentValue)"
+
+$invSum2 = Api 'GET' '/investments/summary' $tokenA $null
+Check 'portfolio totalMonthlySip = 2000' (Approx $invSum2.body.data.totalMonthlySip 2000) "sip=$($invSum2.body.data.totalMonthlySip)"
+
+# 19. Goal feasibility — disposable income vs required saving
+$feas = Api 'GET' '/analytics/goals' $tokenA $null
+Check 'feasibility ok' ($feas.ok) "status=$($feas.status)"
+Check 'feasibility basisMonths = 3' ($feas.body.data.monthly.basisMonths -eq 3) "b=$($feas.body.data.monthly.basisMonths)"
+Check 'feasibility emiCommitment = 16000' (Approx $feas.body.data.monthly.emiCommitment 16000) "emi=$($feas.body.data.monthly.emiCommitment)"
+Check 'feasibility sipCommitment = 2000' (Approx $feas.body.data.monthly.sipCommitment 2000) "sip=$($feas.body.data.monthly.sipCommitment)"
+Check 'feasibility activeGoals = 1' ($feas.body.data.totals.activeGoals -eq 1) "n=$($feas.body.data.totals.activeGoals)"
+Check 'achieved goal needs 0/month -> onTrack' ($feas.body.data.goals[0].onTrack -eq $true) "onTrack=$($feas.body.data.goals[0].onTrack)"
+Check 'achieved goal required = 0' (Approx $feas.body.data.goals[0].requiredMonthlySaving 0) "req=$($feas.body.data.goals[0].requiredMonthlySaving)"
+
+# 20. App update prompt — public version check (fails open with no config) + admin guard
+$verOld = Api 'GET' '/app/version?platform=android&version=1.0.0' $null $null
+Check 'version check is public (no auth)' ($verOld.ok) "status=$($verOld.status)"
+Check 'no config -> updateAvailable false (fail open)' ($verOld.body.data.updateAvailable -eq $false) "upd=$($verOld.body.data.updateAvailable)"
+Check 'no config -> forceUpdate false (fail open)' ($verOld.body.data.forceUpdate -eq $false) "force=$($verOld.body.data.forceUpdate)"
+$verBad = Api 'GET' '/app/version?platform=android&version=not-a-version' $null $null
+Check 'invalid version -> 400' ($verBad.status -eq 400) "status=$($verBad.status)"
+$verAdmin = Api 'PUT' '/app/version/android' $tokenA @{ latestVersion = '2.0.0'; minSupportedVersion = '1.5.0'; storeUrl = 'https://play.google.com/store/apps/details?id=com.spendes' }
+Check 'non-admin cannot set version config -> 403' ($verAdmin.status -eq 403) "status=$($verAdmin.status)"
 
 # Unauthorized check
 $noauth = Api 'GET' '/users/me' $null $null

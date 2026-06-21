@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { validate } from '../../common/middleware/validate';
 import { authenticate } from '../auth/auth.middleware';
-import { getCashflow, getOverview } from './analytics.controller';
+import { getCashflow, getGoalFeasibility, getOverview } from './analytics.controller';
 import { cashflowQuerySchema } from './analytics.validation';
 
 export const analyticsRouter: Router = Router();
@@ -11,3 +11,4 @@ analyticsRouter.use(authenticate);
 
 analyticsRouter.get('/overview', getOverview);
 analyticsRouter.get('/cashflow', validate({ query: cashflowQuerySchema }), getCashflow);
+analyticsRouter.get('/goals', getGoalFeasibility);
