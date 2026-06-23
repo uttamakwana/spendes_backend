@@ -4,7 +4,8 @@ import { paginate } from '../../common/utils/response';
 import type { PaginatedData } from '../../common/types/api-response';
 import { createLogger } from '../../logger';
 import { usersService } from '../users/users.service';
-import type { EmiType } from './emis.enums';
+import { addPeriods, computeSchedule } from './emi-schedule.util';
+import type { EmiFrequency, EmiType } from './emis.enums';
 import { toEmiResponse, type EmiResponse } from './emi-response';
 import type { EmiDocument } from './emis.model';
 import { emisRepository, EmisRepository } from './emis.repository';
@@ -51,7 +52,7 @@ export class EmisService {
       amount: toAmount(dto.amount),
       currency,
       frequency: dto.frequency,
-      startDate: dto.startDate,
+      startDate: this.startDateFor(dto.startDate, dto.frequency, dto.installmentsPaid),
       category: dto.category,
       paymentMethod: dto.paymentMethod,
       interestRatePct: dto.interestRatePct,
@@ -95,7 +96,8 @@ export class EmisService {
   }
 
   async update(userId: string, id: string, dto: UpdateEmiInput): Promise<EmiResponse> {
-    const update: UpdateQuery<EmiDocument> = { ...dto };
+    const { installmentsPaid, ...rest } = dto;
+    const update: UpdateQuery<EmiDocument> = { ...rest };
     if (dto.amount !== undefined) {
       update.amount = toAmount(dto.amount);
     }
@@ -106,8 +108,33 @@ export class EmisService {
       update.currency = dto.currency.toUpperCase();
     }
 
+    // When the caller adjusts the already-paid count, re-anchor `startDate` so the
+    // schedule reflects it — using the provided next-debit date + frequency, with the
+    // EMI's existing values as a fallback.
+    if (installmentsPaid !== undefined) {
+      const existing = await this.repository.findOwnedByIdOrThrow(id, userId);
+      const frequency = dto.frequency ?? existing.frequency;
+      const nextDebit =
+        dto.startDate ??
+        computeSchedule(existing.startDate, frequency, new Date(), existing.tenureCount)
+          .nextDueDate ??
+        existing.startDate;
+      update.startDate = this.startDateFor(nextDebit, frequency, installmentsPaid);
+    }
+
     const emi = await this.repository.updateOwned(id, userId, update);
     return toEmiResponse(emi, new Date());
+  }
+
+  /**
+   * Anchors `startDate` so exactly `alreadyPaid` installments read as paid: the next
+   * debit date stepped back by that many periods (each elapsed period then counts as a
+   * paid installment). With no prior payments it's simply the next debit date.
+   */
+  private startDateFor(nextDebit: Date, frequency: EmiFrequency, alreadyPaid?: number): Date {
+    return alreadyPaid && alreadyPaid > 0
+      ? addPeriods(nextDebit, frequency, -alreadyPaid)
+      : nextDebit;
   }
 
   async remove(userId: string, id: string): Promise<void> {
