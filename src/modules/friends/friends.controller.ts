@@ -8,7 +8,7 @@ import type {
   SettlementIntentInput,
 } from '../splits/splits.validation';
 import { friendsService } from './friends.service';
-import type { AddFriendInput } from './friends.validation';
+import type { AddFriendInput, DeclineFriendInput } from './friends.validation';
 
 /** POST /friends — add a friend by userId or phone (re-opens an existing friendship). */
 export const addFriend = asyncHandler(async (req: Request, res: Response) => {
@@ -26,6 +26,22 @@ export const listFriends = asyncHandler(async (req: Request, res: Response) => {
 export const getFriend = asyncHandler(async (req: Request, res: Response) => {
   const friend = await friendsService.getFriend(req.user!.id, req.params.friendshipId as string);
   sendSuccess(res, req, friend, 'Friend retrieved successfully');
+});
+
+/** POST /friends/:friendshipId/confirm — accept a friendship someone else started. */
+export const confirmFriend = asyncHandler(async (req: Request, res: Response) => {
+  const friend = await friendsService.confirm(req.user!.id, req.params.friendshipId as string);
+  sendSuccess(res, req, friend, 'Friend confirmed');
+});
+
+/** POST /friends/:friendshipId/decline — "I don't recognise this person" (tells them; deletes nothing). */
+export const declineFriend = asyncHandler(async (req: Request, res: Response) => {
+  const friend = await friendsService.decline(
+    req.user!.id,
+    req.params.friendshipId as string,
+    req.body as DeclineFriendInput,
+  );
+  sendSuccess(res, req, friend, 'Friend declined');
 });
 
 /** POST /friends/:friendshipId/expenses — log a direct (1-on-1) split expense. */

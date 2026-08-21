@@ -2,6 +2,15 @@ import { z } from 'zod';
 import { phoneNumberSchema } from '../../common/validation/phone.schema';
 
 /**
+ * A UPI VPA (`name@bank`) — the payee address for settle-up intents. Shared by
+ * registration and profile updates so the two can't drift apart.
+ */
+export const upiIdSchema = z
+  .string()
+  .trim()
+  .regex(/^[a-zA-Z0-9.\-_]{2,256}@[a-zA-Z]{2,64}$/, 'upiId must be a valid UPI id like name@bank');
+
+/**
  * Profile data captured when an account is first created (after OTP verification).
  * Inherits `dialCode` + `phoneNumber` from {@link phoneNumberSchema}. There is no
  * password — authentication is OTP-based.
@@ -11,6 +20,9 @@ export const createUserSchema = phoneNumberSchema.extend({
   lastName: z.string().trim().min(1).max(50),
   email: z.string().email().optional(),
   defaultCurrency: z.string().length(3).optional(),
+  // Optional at sign-up: collecting it here means friends can settle up with the
+  // user from day one, but nothing about the account depends on it.
+  upiId: upiIdSchema.optional(),
 });
 
 export type CreateUserInput = z.infer<typeof createUserSchema>;
@@ -29,13 +41,7 @@ export const updateUserSchema = z
     defaultCurrency: z.string().length(3),
     // UPI VPA (e.g. `name@okhdfcbank`) used as the payee for settle-up UPI intents.
     // `plan` is intentionally NOT editable here — tier changes go through billing/admin.
-    upiId: z
-      .string()
-      .trim()
-      .regex(
-        /^[a-zA-Z0-9.\-_]{2,256}@[a-zA-Z]{2,64}$/,
-        'upiId must be a valid UPI id like name@bank',
-      ),
+    upiId: upiIdSchema,
   })
   .partial();
 

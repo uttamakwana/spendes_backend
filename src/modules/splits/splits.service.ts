@@ -8,6 +8,7 @@ import { createLogger } from '../../logger';
 import { GroupKind, GroupMemberStatus, GroupRole } from '../groups/groups.enums';
 import type { GroupDocument, GroupMember } from '../groups/groups.model';
 import { groupsRepository } from '../groups/groups.repository';
+import { groupsService } from '../groups/groups.service';
 import { usersService } from '../users/users.service';
 import type { UserDocument } from '../users/users.model';
 import { paymentsService } from '../payments/payments.service';
@@ -95,6 +96,10 @@ export class SplitsService {
 
     await this.syncPersonalShares(group, expense);
     await this.notifySplitMembers(group, expense, userId);
+
+    // Adding your own expense here is participation, which implies you accept the
+    // group/friendship — one less "is this right?" to answer later.
+    await groupsService.confirmMembershipQuietly(userId, group._id.toString());
 
     this.logger.info(`Group expense created: ${expense._id.toString()} in group ${groupId}`);
     return toGroupExpenseResponse(expense);
@@ -212,6 +217,11 @@ export class SplitsService {
       currency: settlement.currency,
       settlementId: settlement._id.toString(),
     });
+
+    // Paying someone (or marking their payment received) is as clear a "yes, I know
+    // this person and this is right" as tapping a confirm button, so we never ask
+    // for that tap afterwards.
+    await groupsService.confirmMembershipQuietly(userId, group._id.toString());
 
     this.logger.info(`Settlement recorded: ${settlement._id.toString()} in group ${groupId}`);
     return toSettlementResponse(settlement);
@@ -459,6 +469,7 @@ export class SplitsService {
         actorUserId,
         description: expense.description,
         amount: expense.amount,
+        shareAmount: split.amount,
         currency: expense.currency,
         groupId: group._id.toString(),
         groupExpenseId: expense._id.toString(),

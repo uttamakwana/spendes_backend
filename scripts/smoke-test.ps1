@@ -42,11 +42,15 @@ Write-Host "Phones: A=$phoneA B=$phoneB C=$phoneC D=$phoneD F=$phoneF`n"
 
 # 1. Register user A
 Api 'POST' '/auth/otp/request' $null @{ dialCode = '+91'; phoneNumber = $phoneA } | Out-Null
-$regA = Api 'POST' '/auth/register' $null @{ dialCode = '+91'; phoneNumber = $phoneA; firstName = 'Smoke'; lastName = 'A'; email = "smoke$rA@example.com"; defaultCurrency = 'INR'; otp = '123456' }
+$regA = Api 'POST' '/auth/register' $null @{ dialCode = '+91'; phoneNumber = $phoneA; firstName = 'Smoke'; lastName = 'A'; email = "smoke$rA@example.com"; defaultCurrency = 'INR'; upiId = 'signup@okaxis'; otp = '123456' }
 Check 'register A' $regA.ok "status=$($regA.status)"
 $tokenA = $regA.body.data.tokens.accessToken
 $userIdA = $regA.body.data.user.id
 Check 'A plan=free' ($regA.body.data.user.plan -eq 'free') "plan=$($regA.body.data.user.plan)"
+# The optional UPI id offered during onboarding is captured at sign-up.
+Check 'A upiId captured at sign-up' ($regA.body.data.user.upiId -eq 'signup@okaxis') "upiId=$($regA.body.data.user.upiId)"
+$badUpi = Api 'POST' '/auth/register' $null @{ dialCode = '+91'; phoneNumber = '9123456789'; firstName = 'Bad'; lastName = 'Upi'; upiId = 'not-a-upi'; otp = '123456' }
+Check 'malformed sign-up upiId -> 400' ($badUpi.status -eq 400) "status=$($badUpi.status)"
 
 # 2. Profile + set UPI id
 $me = Api 'GET' '/users/me' $tokenA $null
@@ -321,6 +325,84 @@ $verBad = Api 'GET' '/app/version?platform=android&version=not-a-version' $null 
 Check 'invalid version -> 400' ($verBad.status -eq 400) "status=$($verBad.status)"
 $verAdmin = Api 'PUT' '/app/version/android' $tokenA @{ latestVersion = '2.0.0'; minSupportedVersion = '1.5.0'; storeUrl = 'https://play.google.com/store/apps/details?id=com.spendes' }
 Check 'non-admin cannot set version config -> 403' ($verAdmin.status -eq 403) "status=$($verAdmin.status)"
+
+# 21. Split requests — the review flow (someone adds you, then splits with you).
+# Reuses Dan (step 10) as the person being added and Bob (step 9) as the second
+# reviewer: /auth/otp/request allows only 3 per minute and the script already spends
+# all three, so this section registers nobody new.
+$phoneR = $phoneD
+$tokenR = $tokenD
+
+$addR = Api 'POST' '/friends' $tokenA @{ dialCode = '+91'; phoneNumber = $phoneR }
+Check 'A adds R as a friend' $addR.ok "status=$($addR.status)"
+$fidR = $addR.body.data.friendshipId
+$aMem = $addR.body.data.myMemberId
+$rMem = $addR.body.data.friendMemberId
+Check 'the adder needs no confirmation' ($addR.body.data.consent -eq 'confirmed' -and $addR.body.data.addedByMe -eq $true) "consent=$($addR.body.data.consent)"
+
+$splitR = Api 'POST' "/friends/$fidR/expenses" $tokenA @{ description = 'Dinner'; amount = 100; splitStrategy = 'equal'; paidBy = @(@{ memberId = $aMem; amount = 100 }); splits = @(@{ memberId = $aMem }, @{ memberId = $rMem }) }
+Check 'A splits 100 with R' $splitR.ok "status=$($splitR.status)"
+
+$inboxR = Api 'GET' '/notifications' $tokenR $null
+$rSplitRows = @($inboxR.body.data.items | Where-Object { $_.type -eq 'split_added' })
+$rFriendRows = @($inboxR.body.data.items | Where-Object { $_.type -eq 'friend_added' })
+Check 'R sees one split request' ($rSplitRows.Count -eq 1) "split_added=$($rSplitRows.Count)"
+Check 'the friend-add row is folded into it' ($rFriendRows.Count -eq 0) "friend_added=$($rFriendRows.Count)"
+Check 'the request asks to be reviewed' ($rSplitRows[0].needsReview -eq $true -and $rSplitRows[0].canConfirm -eq $true) "needsReview=$($rSplitRows[0].needsReview)"
+Check 'the copy leads with the share' ($rSplitRows[0].body -like '*your share is*50*') "body=$($rSplitRows[0].body)"
+$nidR = $rSplitRows[0].id
+
+$friendR = (Api 'GET' '/friends' $tokenR $null).body.data.friends | Where-Object { $_.friendshipId -eq $fidR }
+Check 'the friend list marks it pending' ($friendR.consent -eq 'pending' -and $friendR.needsMyReview -eq $true) "consent=$($friendR.consent)"
+
+$detR = Api 'GET' "/notifications/$nidR" $tokenR $null
+Check 'R opens the request' $detR.ok "status=$($detR.status)"
+Check 'it identifies who added them' ($detR.body.data.actor.phoneNumber -eq $phoneA) "phone=$($detR.body.data.actor.phoneNumber)"
+Check 'it shows the share and the bill' ($detR.body.data.expense.myShare -eq 50 -and $detR.body.data.expense.amount -eq 100) "share=$($detR.body.data.expense.myShare)"
+Check 'it offers UPI (A has a VPA)' ($detR.body.data.actions.canPay -eq $true -and (Approx $detR.body.data.actions.payAmount 50)) "canPay=$($detR.body.data.actions.canPay)"
+Check 'opening it marks it read' ($detR.body.data.isRead -eq $true) "isRead=$($detR.body.data.isRead)"
+
+$confR = Api 'POST' "/notifications/$nidR/confirm" $tokenR $null
+Check 'R confirms the request' ($confR.ok -and $confR.body.data.isConfirmed -eq $true) "status=$($confR.status)"
+$friendR2 = (Api 'GET' "/friends/$fidR" $tokenR $null).body.data
+Check 'confirming makes the friendship mutual' ($friendR2.consent -eq 'confirmed' -and $friendR2.needsMyReview -eq $false) "consent=$($friendR2.consent)"
+Check 'and moves no money' (Approx $friendR2.net -50) "net=$($friendR2.net)"
+$confRowA = @((Api 'GET' '/notifications' $tokenA $null).body.data.items | Where-Object { $_.type -eq 'connection_confirmed' })
+Check 'A is told it was confirmed' ($confRowA.Count -ge 1) "rows=$($confRowA.Count)"
+$reconf = Api 'POST' "/notifications/$nidR/confirm" $tokenR $null
+Check 'confirming twice is harmless' $reconf.ok "status=$($reconf.status)"
+
+# Flagging: non-blocking pushback that names a reason
+Api 'POST' "/friends/$fidR/expenses" $tokenA @{ description = 'Cab'; amount = 400; splitStrategy = 'equal'; paidBy = @(@{ memberId = $aMem; amount = 400 }); splits = @(@{ memberId = $aMem }, @{ memberId = $rMem }) } | Out-Null
+$nid2 = @((Api 'GET' '/notifications' $tokenR $null).body.data.items | Where-Object { $_.type -eq 'split_added' -and $_.isConfirmed -eq $false })[0].id
+$flagR = Api 'POST' "/notifications/$nid2/dispute" $tokenR @{ reason = 'wrong_amount' }
+Check 'R flags the second split' ($flagR.ok -and $flagR.body.data.disputeReason -eq 'wrong_amount') "reason=$($flagR.body.data.disputeReason)"
+$dRowA = @((Api 'GET' '/notifications' $tokenA $null).body.data.items | Where-Object { $_.type -eq 'split_disputed' })[0]
+Check 'A hears the reason, not just flagged' ($dRowA.body -like '*amount*') "body=$($dRowA.body)"
+Check 'flagging changes no balance' (Approx (Api 'GET' "/friends/$fidR" $tokenR $null).body.data.net -250) "net=-250"
+Check 'flagging an amount keeps the person' ((Api 'GET' "/friends/$fidR" $tokenR $null).body.data.consent -eq 'confirmed') "still confirmed"
+Check 'double-flagging is refused' ((Api 'POST' "/notifications/$nid2/dispute" $tokenR @{ reason = 'not_mine' }).status -eq 400) "400"
+
+# "I don't know this person" declines the connection (and deletes nothing)
+$addBob = Api 'POST' '/friends' $tokenA @{ dialCode = '+91'; phoneNumber = $phoneB }
+$fidBob = $addBob.body.data.friendshipId
+$bobRow = @((Api 'GET' '/notifications' $tokenB $null).body.data.items | Where-Object { $_.type -eq 'friend_added' -and $_.groupId -eq $fidBob })[0]
+Check 'Bob gets a bare friend request' ($null -ne $bobRow) "found"
+$decBob = Api 'POST' "/notifications/$($bobRow.id)/dispute" $tokenB @{ reason = 'dont_know_them' }
+Check 'Bob says he does not know A' $decBob.ok "status=$($decBob.status)"
+Check 'the connection is declined' ((Api 'GET' "/friends/$fidBob" $tokenB $null).body.data.consent -eq 'declined') "declined"
+$decRowA = @((Api 'GET' '/notifications' $tokenA $null).body.data.items | Where-Object { $_.type -eq 'connection_declined' })
+Check 'A is told, with the wrong-number hint' ($decRowA.Count -ge 1 -and $decRowA[0].body -like '*number*') "body=$($decRowA[0].body)"
+Check 'declining deletes nothing' ((Api 'GET' "/friends/$fidBob" $tokenA $null).ok) "A still sees the friendship"
+
+# The friend screen can answer the same question
+$bobAddsR = Api 'POST' '/friends' $tokenB @{ dialCode = '+91'; phoneNumber = $phoneR }
+$fidBR = $bobAddsR.body.data.friendshipId
+Check 'that side starts pending' (((Api 'GET' "/friends/$fidBR" $tokenR $null).body.data).needsMyReview -eq $true) "pending"
+$confFriend = Api 'POST' "/friends/$fidBR/confirm" $tokenR $null
+Check 'confirming from the friend screen works too' ($confFriend.ok -and $confFriend.body.data.consent -eq 'confirmed') "consent=$($confFriend.body.data.consent)"
+$bobInbox = @((Api 'GET' '/notifications' $tokenB $null).body.data.items | Where-Object { $_.type -eq 'connection_confirmed' })
+Check 'Bob is told R confirmed him' ($bobInbox.Count -ge 1) "rows=$($bobInbox.Count)"
 
 # Unauthorized check
 $noauth = Api 'GET' '/users/me' $null $null

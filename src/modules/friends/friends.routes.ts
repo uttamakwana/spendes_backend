@@ -9,14 +9,16 @@ import {
 } from '../splits/splits.validation';
 import {
   addFriend,
+  confirmFriend,
   createFriendExpense,
   createFriendSettlement,
   createFriendSettlementIntent,
+  declineFriend,
   getFriend,
   listFriendExpenses,
   listFriends,
 } from './friends.controller';
-import { addFriendSchema, friendParamsSchema } from './friends.validation';
+import { addFriendSchema, declineFriendSchema, friendParamsSchema } from './friends.validation';
 
 export const friendsRouter: Router = Router();
 
@@ -26,6 +28,18 @@ friendsRouter.use(authenticate);
 friendsRouter.post('/', validate({ body: addFriendSchema }), addFriend);
 friendsRouter.get('/', listFriends);
 friendsRouter.get('/:friendshipId', validate({ params: friendParamsSchema }), getFriend);
+
+// --- Consent: answering "they added you" ---
+friendsRouter.post(
+  '/:friendshipId/confirm',
+  validate({ params: friendParamsSchema }),
+  confirmFriend,
+);
+friendsRouter.post(
+  '/:friendshipId/decline',
+  validate({ params: friendParamsSchema, body: declineFriendSchema }),
+  declineFriend,
+);
 
 // --- Direct expenses & settlements (1-on-1) ---
 friendsRouter.post(

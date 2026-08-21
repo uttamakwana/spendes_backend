@@ -70,6 +70,7 @@ export class AuthService {
       lastName: dto.lastName,
       email: dto.email,
       defaultCurrency: dto.defaultCurrency,
+      upiId: dto.upiId,
       isPhoneVerified: true,
     });
 

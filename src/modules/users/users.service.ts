@@ -19,6 +19,8 @@ export interface CreateUserData {
   lastName: string;
   email?: string;
   defaultCurrency?: string;
+  /** Optional at sign-up — lets friends settle up with them straight away. */
+  upiId?: string;
   isPhoneVerified?: boolean;
 }
 
@@ -170,6 +172,7 @@ export class UsersService {
       lastName: data.lastName,
       email: data.email?.toLowerCase(),
       defaultCurrency: data.defaultCurrency,
+      upiId: data.upiId,
       isPhoneVerified: data.isPhoneVerified ?? true,
     });
     this.logger.info(`User registered: ${user._id.toString()}`);

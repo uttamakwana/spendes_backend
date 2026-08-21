@@ -3,13 +3,18 @@ import { validate } from '../../common/middleware/validate';
 import { idParamSchema } from '../../common/utils/object-id';
 import { authenticate } from '../auth/auth.middleware';
 import {
+  confirmNotification,
   disputeNotification,
+  getNotification,
   getUnreadCount,
   listNotifications,
   markAllNotificationsRead,
   markNotificationRead,
 } from './notifications.controller';
-import { listNotificationsQuerySchema } from './notifications.validation';
+import {
+  disputeNotificationSchema,
+  listNotificationsQuerySchema,
+} from './notifications.validation';
 
 export const notificationsRouter: Router = Router();
 
@@ -22,5 +27,11 @@ notificationsRouter.get('/', validate({ query: listNotificationsQuerySchema }), 
 notificationsRouter.get('/unread-count', getUnreadCount);
 notificationsRouter.post('/read-all', markAllNotificationsRead);
 
+notificationsRouter.get('/:id', validate({ params: idParamSchema }), getNotification);
 notificationsRouter.patch('/:id/read', validate({ params: idParamSchema }), markNotificationRead);
-notificationsRouter.post('/:id/dispute', validate({ params: idParamSchema }), disputeNotification);
+notificationsRouter.post('/:id/confirm', validate({ params: idParamSchema }), confirmNotification);
+notificationsRouter.post(
+  '/:id/dispute',
+  validate({ params: idParamSchema, body: disputeNotificationSchema }),
+  disputeNotification,
+);

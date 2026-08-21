@@ -1,8 +1,8 @@
 import { NotFoundException } from '../../common/errors/http-exception';
 import type { PaginatedData } from '../../common/types/api-response';
 import { createLogger } from '../../logger';
-import { GroupKind, GroupMemberStatus } from '../groups/groups.enums';
-import type { GroupDocument } from '../groups/groups.model';
+import { GroupKind, GroupMemberStatus, MemberConsent } from '../groups/groups.enums';
+import { resolveMemberConsent, type GroupDocument } from '../groups/groups.model';
 import { groupsRepository } from '../groups/groups.repository';
 import { groupsService } from '../groups/groups.service';
 import { notificationsService } from '../notifications/notifications.service';
@@ -20,7 +20,7 @@ import type {
   SettlementIntentInput,
 } from '../splits/splits.validation';
 import type { FriendResponse, FriendsListResponse } from './friends-response';
-import type { AddFriendInput } from './friends.validation';
+import type { AddFriendInput, DeclineFriendInput } from './friends.validation';
 
 const round2 = (value: number): number => Math.round(value * 100) / 100;
 
@@ -80,6 +80,67 @@ export class FriendsService {
   async getFriend(userId: string, friendshipId: string): Promise<FriendResponse> {
     const group = await this.loadDirect(userId, friendshipId);
     return this.toFriend(userId, group);
+  }
+
+  // --- Consent ("they added you — is this right?") -----------------------------
+
+  /**
+   * Accepts a friendship someone else created. This is the light half of the flow:
+   * it settles nothing and moves no money, it just makes the connection mutual —
+   * the same thing paying or settling does implicitly.
+   */
+  async confirm(userId: string, friendshipId: string): Promise<FriendResponse> {
+    const group = await this.loadDirect(userId, friendshipId);
+    await groupsService.setConsent(userId, friendshipId, MemberConsent.Confirmed);
+    await notificationsService.markConnectionConfirmed(userId, friendshipId);
+    await this.notifyConsentAnswer(userId, group, MemberConsent.Confirmed);
+
+    return this.toFriend(userId, await this.loadDirect(userId, friendshipId));
+  }
+
+  /**
+   * "I don't recognise this person." Nothing is deleted — Spendes never rewrites the
+   * other side's ledger on one person's say-so — but they are told, which is what
+   * turns a wrong number into a fixable mistake.
+   */
+  async decline(
+    userId: string,
+    friendshipId: string,
+    dto: DeclineFriendInput = {},
+  ): Promise<FriendResponse> {
+    const group = await this.loadDirect(userId, friendshipId);
+    await groupsService.setConsent(userId, friendshipId, MemberConsent.Declined);
+    await this.notifyConsentAnswer(userId, group, MemberConsent.Declined, dto.note);
+
+    return this.toFriend(userId, await this.loadDirect(userId, friendshipId));
+  }
+
+  /** Tells the other side how their invite landed (best-effort, like every notification). */
+  private async notifyConsentAnswer(
+    userId: string,
+    group: GroupDocument,
+    consent: MemberConsent,
+    note?: string,
+  ): Promise<void> {
+    const me = group.members.find((m) => m.userId?.toString() === userId);
+    const friend = group.members.find((m) => m._id.toString() !== me?._id.toString());
+    if (!friend?.userId || friend.userId.toString() === userId) {
+      return;
+    }
+
+    const payload = {
+      recipientUserId: friend.userId.toString(),
+      actorName: me?.displayName ?? 'Someone',
+      actorUserId: userId,
+      groupId: group._id.toString(),
+      isDirect: true,
+    };
+
+    if (consent === MemberConsent.Confirmed) {
+      await notificationsService.notifyConnectionConfirmed(payload);
+    } else {
+      await notificationsService.notifyConnectionDeclined({ ...payload, note });
+    }
   }
 
   // --- Direct expenses & settlements (delegated to the splits engine) ----------
@@ -149,6 +210,9 @@ export class FriendsService {
       ? await usersService.findEntityById(friend.userId.toString())
       : null;
 
+    const myConsent = resolveMemberConsent(me);
+    const addedByMe = group.createdBy.toString() === userId;
+
     return {
       friendshipId: group._id.toString(),
       myMemberId: me._id.toString(),
@@ -161,6 +225,10 @@ export class FriendsService {
       phoneNumber: friend.phoneNumber,
       currency: group.currency,
       net: balances.myNet ?? 0,
+      consent: myConsent,
+      theirConsent: resolveMemberConsent(friend),
+      addedByMe,
+      needsMyReview: !addedByMe && myConsent === MemberConsent.Pending,
       createdAt: group.createdAt,
       updatedAt: group.updatedAt,
     };

@@ -13,7 +13,7 @@ import { phoneService } from '../auth/phone/phone.service';
 import { notificationsService } from '../notifications/notifications.service';
 import { usersService } from '../users/users.service';
 import type { UserDocument } from '../users/users.model';
-import { GroupKind, GroupMemberStatus, GroupRole } from './groups.enums';
+import { GroupKind, GroupMemberStatus, GroupRole, MemberConsent } from './groups.enums';
 import { toGroupResponse, type GroupResponse } from './group-response';
 import type { GroupDocument, GroupMember } from './groups.model';
 import { groupsRepository, GroupsRepository } from './groups.repository';
@@ -279,6 +279,48 @@ export class GroupsService {
     return { group, created: true };
   }
 
+  /**
+   * Records the caller's answer to "someone added you here — is this right?".
+   * Consent is bookkeeping, never a gate: whichever way it goes the group, the
+   * split and the balance stay exactly as they are.
+   *
+   * Pass `implicit` for actions that *imply* agreement rather than state it — paying,
+   * settling, or adding your own expense in the group. Those only ever upgrade a
+   * pending membership, so they can't quietly undo a deliberate decline.
+   */
+  async setConsent(
+    userId: string,
+    groupId: string,
+    consent: MemberConsent,
+    options: { implicit?: boolean } = {},
+  ): Promise<boolean> {
+    return this.repository.setMemberConsent(groupId, userId, consent, {
+      onlyIfPending: options.implicit,
+    });
+  }
+
+  /**
+   * Best-effort implicit confirmation for someone who just acted inside a group
+   * (paid, settled, added an expense). Acting *is* acknowledging, so we never make
+   * them tap "Looks right" afterwards. Swallows its own errors — this must never
+   * fail the action that triggered it.
+   */
+  async confirmMembershipQuietly(userId: string, groupId: string): Promise<void> {
+    try {
+      const changed = await this.setConsent(userId, groupId, MemberConsent.Confirmed, {
+        implicit: true,
+      });
+      if (changed) {
+        // Answer the inbox too, so "X added you" doesn't keep asking a question the
+        // user has already answered with their wallet.
+        await notificationsService.markConnectionConfirmed(userId, groupId);
+        this.logger.info(`Membership confirmed implicitly: user ${userId} in group ${groupId}`);
+      }
+    } catch (error) {
+      this.logger.warn(`Failed to confirm membership: ${(error as Error).message}`);
+    }
+  }
+
   // ---------------------------------------------------------------------------
   // Internals
   // ---------------------------------------------------------------------------
@@ -292,6 +334,8 @@ export class GroupsService {
       displayName: `${user.firstName} ${user.lastName}`.trim(),
       role: GroupRole.Admin,
       status: GroupMemberStatus.Active,
+      // You never have to consent to a group you created yourself.
+      consent: MemberConsent.Confirmed,
       joinedAt: new Date(),
     };
   }
@@ -301,6 +345,9 @@ export class GroupsService {
     const base = {
       _id: new Types.ObjectId(),
       role: invite.role ?? GroupRole.Member,
+      // Someone else is adding them, so they haven't agreed to anything yet. This
+      // never blocks the add — it just gives them a "is this right?" moment later.
+      consent: MemberConsent.Pending,
       joinedAt: new Date(),
     };
 

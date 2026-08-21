@@ -4,19 +4,26 @@ import { buildSort } from '../../common/utils/pagination';
 import { paginate } from '../../common/utils/response';
 import type { PaginatedData } from '../../common/types/api-response';
 import { createLogger } from '../../logger';
+import { MemberConsent } from '../groups/groups.enums';
+import { groupsRepository } from '../groups/groups.repository';
 import { pushService } from '../push/push.service';
 import { resolveNotificationPreferences, type NotificationPreferences } from '../users/users.model';
 import { usersService } from '../users/users.service';
 import type { NotificationDocument } from './notification.model';
-import { toNotificationResponse, type NotificationResponse } from './notification-response';
-import { NotificationType } from './notifications.enums';
+import {
+  REVIEWABLE,
+  toNotificationResponse,
+  type NotificationResponse,
+} from './notification-response';
+import { DisputeReason, NotificationType } from './notifications.enums';
 import { notificationsRepository, NotificationsRepository } from './notifications.repository';
-import type { ListNotificationsQuery } from './notifications.validation';
+import type { DisputeNotificationInput, ListNotificationsQuery } from './notifications.validation';
 
 /** Notification types the recipient may flag as wrong (non-blocking pushback). */
 const DISPUTABLE = new Set<NotificationType>([
   NotificationType.SplitAdded,
   NotificationType.MembershipInherited,
+  NotificationType.FriendAdded,
 ]);
 
 /**
@@ -30,6 +37,8 @@ const PUSH_CATEGORY: Record<NotificationType, keyof NotificationPreferences> = {
   [NotificationType.SettlementRecorded]: 'splits',
   [NotificationType.SplitDisputed]: 'splits',
   [NotificationType.MembershipInherited]: 'splits',
+  [NotificationType.ConnectionConfirmed]: 'splits',
+  [NotificationType.ConnectionDeclined]: 'splits',
 };
 
 interface FriendAddedInput {
@@ -44,7 +53,10 @@ interface SplitAddedInput {
   actorName: string;
   actorUserId: string;
   description?: string;
+  /** The whole bill. */
   amount: number;
+  /** The recipient's slice of it — the number they actually care about. */
+  shareAmount?: number;
   currency: string;
   groupId: string;
   groupExpenseId: string;
@@ -61,6 +73,19 @@ interface SettlementInput {
   groupId: string;
   settlementId: string;
   isDirect: boolean;
+}
+
+interface ConnectionAnswerInput {
+  /** Whoever started it — the person being told how their invite/split landed. */
+  recipientUserId: string;
+  /** Who answered. */
+  actorName: string;
+  actorUserId: string;
+  groupId: string;
+  isDirect: boolean;
+  groupExpenseId?: string;
+  amount?: number;
+  currency?: string;
 }
 
 interface MembershipInheritedInput {
@@ -123,12 +148,57 @@ export class NotificationsService {
   }
 
   /**
-   * Flags a split/inherited notification the recipient believes is wrong. This is
-   * non-blocking pushback: nothing is deleted — the split's creator is notified so
-   * they can correct or remove it from the group. Idempotent guard prevents double
-   * flagging.
+   * The recipient's "looks right" — the light half of consent. It answers *this*
+   * item and, because you can't agree with a split from someone you don't know,
+   * also confirms the underlying connection (and any "X added you" rows for it).
+   *
+   * Individual splits stay separately reviewable on purpose: agreeing that you know
+   * someone is not agreeing to every amount they will ever enter.
    */
-  async dispute(userId: string, id: string): Promise<NotificationResponse> {
+  async confirm(userId: string, id: string): Promise<NotificationResponse> {
+    const notification = await this.repository.findOwnedByIdOrThrow(id, userId);
+    if (!REVIEWABLE.has(notification.type)) {
+      throw new BadRequestException('There is nothing to confirm on this notification');
+    }
+    if (notification.isDisputed) {
+      throw new BadRequestException('You already flagged this as wrong');
+    }
+    if (notification.isConfirmed) {
+      return toNotificationResponse(notification);
+    }
+
+    const updated = await this.repository.markConfirmed(id, userId);
+    await this.acceptConnection(userId, notification.groupId?.toString());
+
+    if (notification.actorUserId && notification.groupId) {
+      await this.notifyConnectionConfirmed({
+        recipientUserId: notification.actorUserId.toString(),
+        actorName: await this.resolveName(userId),
+        actorUserId: userId,
+        groupId: notification.groupId.toString(),
+        isDirect: notification.isDirect ?? false,
+        forSplit: notification.type === NotificationType.SplitAdded,
+        groupExpenseId: notification.groupExpenseId?.toString(),
+        amount: notification.amount,
+        currency: notification.currency,
+      });
+    }
+
+    return toNotificationResponse(updated);
+  }
+
+  /**
+   * Flags a split/friendship the recipient believes is wrong. This is non-blocking
+   * pushback: nothing is deleted — whoever added it is told, with the reason, so
+   * they can correct or remove it. `DontKnowThem` additionally declines the
+   * connection, since that reason is usually a mistyped phone number.
+   * Idempotent guard prevents double flagging.
+   */
+  async dispute(
+    userId: string,
+    id: string,
+    input: DisputeNotificationInput = {},
+  ): Promise<NotificationResponse> {
     const notification = await this.repository.findOwnedByIdOrThrow(id, userId);
     if (!DISPUTABLE.has(notification.type)) {
       throw new BadRequestException('This notification cannot be flagged');
@@ -137,16 +207,27 @@ export class NotificationsService {
       throw new BadRequestException('You already flagged this');
     }
 
-    const updated = await this.repository.markDisputed(id, userId);
+    const reason =
+      input.reason ??
+      (notification.type === NotificationType.FriendAdded ? DisputeReason.DontKnowThem : undefined);
+    const rejectsPerson = reason === DisputeReason.DontKnowThem;
 
-    // Tell the split's creator (if any) so they can review/correct it.
+    const updated = await this.repository.markDisputed(id, userId, reason, input.note);
+
+    if (rejectsPerson && notification.groupId) {
+      await this.setConsent(userId, notification.groupId.toString(), MemberConsent.Declined);
+    }
+
+    // Tell whoever added it, with enough detail to act on.
     if (notification.actorUserId) {
       const disputerName = await this.resolveName(userId);
       await this.emit({
         userId: notification.actorUserId,
-        type: NotificationType.SplitDisputed,
-        title: 'Split flagged',
-        body: `${disputerName} flagged a split you added. Tap to review it.`,
+        type: rejectsPerson ? NotificationType.ConnectionDeclined : NotificationType.SplitDisputed,
+        title: rejectsPerson ? 'Not recognised' : 'Split flagged',
+        body: rejectsPerson
+          ? this.declinedBody(disputerName, input.note)
+          : this.disputeBody(disputerName, notification, reason, input.note),
         actorName: disputerName,
         actorUserId: new Types.ObjectId(userId),
         groupId: notification.groupId,
@@ -158,6 +239,19 @@ export class NotificationsService {
     }
 
     return toNotificationResponse(updated);
+  }
+
+  /**
+   * Marks the connection-level inbox rows for a group as answered. Called when
+   * consent is given somewhere else (the friend screen, or by paying), so the same
+   * question is never asked twice in two places.
+   */
+  async markConnectionConfirmed(userId: string, groupId: string): Promise<void> {
+    try {
+      await this.repository.confirmConnectionItems(userId, groupId);
+    } catch (error) {
+      this.logger.warn(`Failed to confirm connection items: ${(error as Error).message}`);
+    }
   }
 
   // --- Emitters (best-effort; called by the social engine) -------------------
@@ -178,17 +272,36 @@ export class NotificationsService {
   async notifySplitAdded(input: SplitAddedInput): Promise<void> {
     const money = this.formatAmount(input.amount, input.currency);
     const forWhat = input.description ? ` for “${input.description}”` : '';
-    const body = input.isDirect
-      ? `${input.actorName} added a ${money} split with you${forWhat}.`
-      : `${input.actorName} added you to a ${money} split${forWhat}${
-          input.groupName ? ` in ${input.groupName}` : ''
-        }.`;
+
+    // Adding a friend and immediately splitting with them is one action to the
+    // person doing it, so it should be one row to the person receiving it. If an
+    // untouched "X added you as a friend" is still sitting there, this supersedes it.
+    const supersededFriendAdd =
+      input.isDirect &&
+      (await this.repository
+        .deleteUnactionedFriendAdd(input.recipientUserId, input.groupId)
+        .catch(() => 0)) > 0;
+
+    const opener = supersededFriendAdd
+      ? `${input.actorName} added you on Spendes and split ${money} with you${forWhat}`
+      : input.isDirect
+        ? `${input.actorName} added a ${money} split with you${forWhat}`
+        : `${input.actorName} added you to a ${money} split${forWhat}${
+            input.groupName ? ` in ${input.groupName}` : ''
+          }`;
+
+    // Lead with their share when it isn't simply the whole bill — that's the number
+    // they're being asked about.
+    const share =
+      input.shareAmount !== undefined && input.shareAmount !== input.amount
+        ? ` — your share is ${this.formatAmount(input.shareAmount, input.currency)}`
+        : '';
 
     await this.emit({
       userId: new Types.ObjectId(input.recipientUserId),
       type: NotificationType.SplitAdded,
       title: 'New split',
-      body,
+      body: `${opener}${share}.`,
       actorName: input.actorName,
       actorUserId: new Types.ObjectId(input.actorUserId),
       groupId: new Types.ObjectId(input.groupId),
@@ -216,6 +329,52 @@ export class NotificationsService {
     });
   }
 
+  /**
+   * Closes the loop for whoever added someone: they confirmed you, or the split.
+   * Emitted from the inbox review screen and from the friend screen alike.
+   */
+  async notifyConnectionConfirmed(
+    input: ConnectionAnswerInput & { forSplit?: boolean },
+  ): Promise<void> {
+    const money =
+      input.amount !== undefined
+        ? ` ${this.formatAmount(input.amount, input.currency ?? 'INR')}`
+        : '';
+
+    await this.emit({
+      userId: new Types.ObjectId(input.recipientUserId),
+      type: NotificationType.ConnectionConfirmed,
+      title: input.forSplit ? 'Split confirmed' : 'Confirmed',
+      body: input.forSplit
+        ? `${input.actorName} confirmed the${money} split you added.`
+        : `${input.actorName} confirmed you on Spendes.`,
+      actorName: input.actorName,
+      actorUserId: new Types.ObjectId(input.actorUserId),
+      groupId: new Types.ObjectId(input.groupId),
+      groupExpenseId: input.groupExpenseId ? new Types.ObjectId(input.groupExpenseId) : undefined,
+      isDirect: input.isDirect,
+      amount: input.amount,
+      currency: input.currency,
+    });
+  }
+
+  /**
+   * The other answer: they don't recognise the person who added them. Usually a
+   * mistyped phone number, so the copy points at that rather than at the split.
+   */
+  async notifyConnectionDeclined(input: ConnectionAnswerInput & { note?: string }): Promise<void> {
+    await this.emit({
+      userId: new Types.ObjectId(input.recipientUserId),
+      type: NotificationType.ConnectionDeclined,
+      title: 'Not recognised',
+      body: this.declinedBody(input.actorName, input.note),
+      actorName: input.actorName,
+      actorUserId: new Types.ObjectId(input.actorUserId),
+      groupId: new Types.ObjectId(input.groupId),
+      isDirect: input.isDirect,
+    });
+  }
+
   async notifyMembershipInherited(input: MembershipInheritedInput): Promise<void> {
     const body = input.isDirect
       ? `You and ${input.otherName ?? 'a friend'} have shared expenses from before you joined. Review or flag them.`
@@ -233,6 +392,57 @@ export class NotificationsService {
   }
 
   // --- Internals -------------------------------------------------------------
+
+  /** Confirms the connection behind a reviewed item: the membership and its inbox rows. */
+  private async acceptConnection(userId: string, groupId?: string): Promise<void> {
+    if (!groupId) return;
+    await this.setConsent(userId, groupId, MemberConsent.Confirmed);
+    await this.markConnectionConfirmed(userId, groupId);
+  }
+
+  /** Writes a consent answer, best-effort — it must never fail the inbox action. */
+  private async setConsent(userId: string, groupId: string, consent: MemberConsent): Promise<void> {
+    try {
+      await groupsRepository.setMemberConsent(groupId, userId, consent);
+    } catch (error) {
+      this.logger.warn(`Failed to set membership consent: ${(error as Error).message}`);
+    }
+  }
+
+  /** Reply copy for a flagged split — the reason is what makes it actionable. */
+  private disputeBody(
+    name: string,
+    notification: NotificationDocument,
+    reason?: DisputeReason,
+    note?: string,
+  ): string {
+    const what = notification.groupExpenseId ? 'the split you added' : 'what you added';
+    const money =
+      notification.amount !== undefined
+        ? ` (${this.formatAmount(notification.amount, notification.currency ?? 'INR')})`
+        : '';
+
+    const headline = ((): string => {
+      switch (reason) {
+        case DisputeReason.NotMine:
+          return `${name} says they weren't part of ${what}${money}.`;
+        case DisputeReason.WrongAmount:
+          return `${name} says the amount on ${what}${money} isn't right.`;
+        case DisputeReason.AlreadyPaid:
+          return `${name} says they already paid you for ${what}${money}.`;
+        default:
+          return `${name} flagged ${what}${money}. Tap to review it.`;
+      }
+    })();
+
+    return note ? `${headline} “${note}”` : headline;
+  }
+
+  /** Reply copy for "I don't recognise this person". */
+  private declinedBody(name: string, note?: string): string {
+    const headline = `${name} doesn't recognise you — check you used the right number.`;
+    return note ? `${headline} “${note}”` : headline;
+  }
 
   /**
    * Persists a notification, swallowing and logging any error (never throws),

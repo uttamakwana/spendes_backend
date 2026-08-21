@@ -28,3 +28,14 @@ export type AddFriendInput = z.infer<typeof addFriendSchema>;
 
 /** Route param for the friend-scoped routes: the friendship (direct group) id. */
 export const friendParamsSchema = z.object({ friendshipId: objectId });
+
+/**
+ * Body for `POST /friends/:friendshipId/decline`. Just an optional note — the reason
+ * itself is implicit ("I don't recognise this person"), and nothing is deleted, so
+ * there is no destructive choice to confirm.
+ */
+export const declineFriendSchema = z.object({
+  note: z.string().trim().max(280).optional(),
+});
+
+export type DeclineFriendInput = z.infer<typeof declineFriendSchema>;

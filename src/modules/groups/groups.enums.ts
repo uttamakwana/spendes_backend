@@ -33,3 +33,28 @@ export enum GroupMemberStatus {
   Invited = 'invited',
   Removed = 'removed',
 }
+
+/**
+ * Whether a member has actually acknowledged being in this group/friendship.
+ *
+ * Spendes is deliberately frictionless: adding someone and splitting with them
+ * takes effect immediately (no accept/reject gate at the dinner table). Consent is
+ * therefore recorded *alongside* the membership rather than in front of it — the
+ * balance is real either way, but the added person gets one clear moment to say
+ * "yes, this is me / this is right" or push back.
+ *
+ * - `Confirmed` — they created it, or acknowledged it (confirmed, paid, settled,
+ *                 or added an expense of their own here).
+ * - `Pending`   — someone else added them and they haven't responded yet.
+ * - `Declined`  — they said they don't recognise this person/group. Non-blocking:
+ *                 nothing is deleted, the other side is simply told.
+ *
+ * A member document written before this field existed reads as `undefined` and is
+ * treated as {@link MemberConsent.Confirmed} — old relationships are never
+ * retroactively turned into pending requests (see `resolveMemberConsent`).
+ */
+export enum MemberConsent {
+  Confirmed = 'confirmed',
+  Pending = 'pending',
+  Declined = 'declined',
+}

@@ -300,7 +300,8 @@ A ready-to-import Postman collection lives in [`postman/`](postman/).
 | **Income** | `…/income` CRUD + `GET /income/summary` | Per-category / per-source breakdowns |
 | **Groups** | `…/groups` CRUD + `…/:id/members` | Invite by phone → placeholders auto-link on registration |
 | **Splits** | `…/groups/:id/expenses`, `…/balances`, `…/settlements`, `…/settlements/intent` | 4 split strategies, debt simplification, UPI settle-up |
-| **Friends** | `…/friends` + `…/:id/expenses·settlements·settlements/intent` | 1-on-1 direct splits (a 2-person "direct" group, hidden from the groups list) |
+| **Friends** | `…/friends` + `…/:id/expenses·settlements·settlements/intent·confirm·decline` | 1-on-1 direct splits (a 2-person "direct" group, hidden from the groups list) |
+| **Notifications** | `…/notifications`, `…/:id` (review), `…/:id/confirm·dispute·read`, `…/read-all`, `…/unread-count` | Activity inbox + the split-request review flow: someone can add you and split with you before you have added them back, so the recipient gets one screen to confirm, pay, or flag it — and confirming or paying is what makes the connection mutual (`consent` on the membership) |
 | **Budgets** | `…/budgets` CRUD | Live `spent`/`remaining`/`status` per period (incl. shares) |
 | **EMIs** | `…/emis` CRUD + `GET /emis/summary` | Schedules, monthly-commitment, due-this-month |
 | **Goals** | `…/goals` CRUD + `POST /goals/:id/contribute` | Progress + "save ₹X/month to finish on time" |
