@@ -141,12 +141,15 @@ export class AnalyticsService {
   /** Income vs expense for each of the trailing `months` (oldest → newest). */
   async cashflow(userId: string, months: number): Promise<CashflowResponse> {
     const now = new Date();
-    const timezone = await this.resolveTimezone(userId);
+    const [timezone, currency] = await Promise.all([
+      this.resolveTimezone(userId),
+      this.homeCurrency(userId),
+    ]);
     const range = this.trailingMonths(now, months, timezone);
 
     const [expenseMonths, incomeMonths] = await Promise.all([
-      expensesRepository.monthlyTotals(userId, range, timezone),
-      incomeRepository.monthlyTotals(userId, range, timezone),
+      expensesRepository.monthlyTotals(userId, range, timezone, currency),
+      incomeRepository.monthlyTotals(userId, range, timezone, currency),
     ]);
 
     const expenseByKey = new Map(expenseMonths.map((r) => [`${r.year}-${r.month}`, r.total]));
@@ -196,6 +199,12 @@ export class AnalyticsService {
     };
   }
 
+  /** The currency the user's own books are in — nothing else is added to them. */
+  private async homeCurrency(userId: string): Promise<string> {
+    const user = await usersService.findEntityById(userId);
+    return user?.defaultCurrency ?? 'INR';
+  }
+
   /** The user's IANA zone, so every calendar figure here is *their* month. */
   private async resolveTimezone(userId: string): Promise<string> {
     const user = await usersService.findEntityById(userId);
@@ -209,11 +218,12 @@ export class AnalyticsService {
     timezone: string,
   ): Promise<{ avgIncome: number; avgExpense: number; basisMonths: number }> {
     const basisMonths = FEASIBILITY_BASIS_MONTHS;
+    const currency = await this.homeCurrency(userId);
     const range = this.trailingMonths(now, basisMonths, timezone);
 
     const [incomeMonths, expenseMonths] = await Promise.all([
-      incomeRepository.monthlyTotals(userId, range, timezone),
-      expensesRepository.monthlyTotals(userId, range, timezone),
+      incomeRepository.monthlyTotals(userId, range, timezone, currency),
+      expensesRepository.monthlyTotals(userId, range, timezone, currency),
     ]);
 
     const avgIncome = round2(incomeMonths.reduce((s, r) => s + r.total, 0) / basisMonths);

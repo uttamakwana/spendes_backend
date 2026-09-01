@@ -246,7 +246,7 @@ export class GroupsService {
    */
   async findOrCreateDirect(
     userId: string,
-    invite: MemberInviteInput,
+    invite: MemberInviteInput & { currency?: string },
   ): Promise<{ group: GroupDocument; created: boolean }> {
     const creator = await usersService.findEntityById(userId);
     if (!creator) {
@@ -269,7 +269,8 @@ export class GroupsService {
 
     const group = await this.repository.create({
       name: friend.displayName,
-      currency: creator.defaultCurrency ?? 'INR',
+      // A friendship abroad may keep its books in the other currency; ours otherwise.
+      currency: invite.currency?.toUpperCase() ?? creator.defaultCurrency ?? 'INR',
       kind: GroupKind.Direct,
       createdBy: creator._id,
       members: [this.buildCreatorMember(creator), friend],

@@ -82,6 +82,7 @@ export class ExpensesRepository extends BaseRepository<ExpenseDocument> {
     userId: string,
     range: { from: Date; to: Date },
     category?: string,
+    currency?: string,
   ): Promise<number> {
     const match: FilterQuery<ExpenseDocument> = {
       userId: new Types.ObjectId(userId),
@@ -89,6 +90,10 @@ export class ExpensesRepository extends BaseRepository<ExpenseDocument> {
     };
     if (category) {
       match.category = category;
+    }
+    // Only money of one kind can be added up — see `summarize`.
+    if (currency) {
+      match.currency = currency;
     }
     const [result] = await this.aggregate<{ total: number }>([
       { $match: match },
@@ -101,8 +106,21 @@ export class ExpensesRepository extends BaseRepository<ExpenseDocument> {
    * Rolls up a user's spend over an optional date window into overall totals plus
    * per-category and per-payment-method breakdowns, in a single round trip.
    */
-  async summarize(userId: string, range: ExpenseDateRange): Promise<ExpenseSummaryAggregate> {
+  /**
+   * `currency` scopes the totals to one set of books. A share materialised from a
+   * group that settles in another currency is a real expense and stays in the list,
+   * but Spendes never converts, so adding a $20 row to a ₹ total would produce a
+   * number that means nothing.
+   */
+  async summarize(
+    userId: string,
+    range: ExpenseDateRange,
+    currency?: string,
+  ): Promise<ExpenseSummaryAggregate> {
     const match: FilterQuery<ExpenseDocument> = { userId: new Types.ObjectId(userId) };
+    if (currency) {
+      match.currency = currency;
+    }
     if (range.from || range.to) {
       match.spentAt = {
         ...(range.from ? { $gte: range.from } : {}),
@@ -160,6 +178,7 @@ export class ExpensesRepository extends BaseRepository<ExpenseDocument> {
     userId: string,
     range: { from: Date; to: Date },
     timezone?: string,
+    currency?: string,
   ): Promise<{ year: number; month: number; total: number }[]> {
     // Mongo does the calendar arithmetic in the caller's zone, so a late-evening
     // transaction lands in the month the *user* was in when they made it.
@@ -168,6 +187,7 @@ export class ExpensesRepository extends BaseRepository<ExpenseDocument> {
       {
         $match: {
           userId: new Types.ObjectId(userId),
+          ...(currency ? { currency } : {}),
           spentAt: { $gte: range.from, $lte: range.to },
         },
       },

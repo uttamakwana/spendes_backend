@@ -64,6 +64,7 @@ export class SplitsService {
     dto: CreateGroupExpenseInput,
   ): Promise<GroupExpenseResponse> {
     const group = await groupsRepository.findForMemberOrThrow(groupId, userId);
+    this.assertGroupCurrency(group, dto.currency);
 
     const referenced = [...dto.paidBy.map((p) => p.memberId), ...dto.splits.map((s) => s.memberId)];
     this.assertMembersPresent(group, referenced);
@@ -177,6 +178,7 @@ export class SplitsService {
     dto: CreateSettlementInput,
   ): Promise<SettlementResponse> {
     const group = await groupsRepository.findForMemberOrThrow(groupId, userId);
+    this.assertGroupCurrency(group, dto.currency);
     const fromMemberId = dto.fromMemberId ?? this.callerMember(group, userId)._id.toString();
     const toMemberId = dto.toMemberId;
 
@@ -522,6 +524,22 @@ export class SplitsService {
   }
 
   // --- Internals -------------------------------------------------------------
+
+  /**
+   * A group keeps one set of books. Spendes never converts currency, so an expense
+   * in a different currency than its group would be silently added to balances that
+   * mean something else — a $180 dinner making a ₹ balance 180 worse. Refuse it and
+   * point at the fix: the group's currency is chosen when it is created.
+   */
+  private assertGroupCurrency(group: GroupDocument, currency?: string): void {
+    if (!currency) return;
+    const requested = currency.toUpperCase();
+    if (requested !== group.currency) {
+      throw new BadRequestException(
+        `This group is in ${group.currency}, so amounts have to be in ${group.currency} too — Spendes doesn't convert between currencies. Start a separate ${requested} group if you split in both.`,
+      );
+    }
+  }
 
   private presentMembers(group: GroupDocument): GroupMember[] {
     return group.members.filter((m) => m.status !== GroupMemberStatus.Removed);

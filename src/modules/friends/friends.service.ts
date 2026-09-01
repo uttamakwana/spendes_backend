@@ -67,14 +67,24 @@ export class FriendsService {
       friends.push(await this.toFriend(userId, group));
     }
 
-    const totalYouAreOwed = friends.filter((f) => f.net > 0).reduce((sum, f) => sum + f.net, 0);
-    const totalYouOwe = friends.filter((f) => f.net < 0).reduce((sum, f) => sum - f.net, 0);
+    // Headline totals cover the user's own currency only. Nothing is converted here,
+    // so adding a $90 balance to a ₹5,950 one would produce a number that means
+    // nothing — a friendship abroad still shows its own balance on its own row.
+    const user = await usersService.findEntityById(userId);
+    const homeCurrency = user?.defaultCurrency ?? 'INR';
+    const home = friends.filter((f) => f.currency === homeCurrency);
+
+    const totalYouAreOwed = home.filter((f) => f.net > 0).reduce((sum, f) => sum + f.net, 0);
+    const totalYouOwe = home.filter((f) => f.net < 0).reduce((sum, f) => sum - f.net, 0);
 
     return {
       friends,
+      currency: homeCurrency,
       totalYouAreOwed: round2(totalYouAreOwed),
       totalYouOwe: round2(totalYouOwe),
       net: round2(totalYouAreOwed - totalYouOwe),
+      /** Friendships kept in another currency, excluded from the totals above. */
+      otherCurrencyCount: friends.length - home.length,
     };
   }
 

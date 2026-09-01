@@ -51,8 +51,16 @@ export class IncomeRepository extends BaseRepository<IncomeDocument> {
    * breakdown ignores entries with no recorded source (it would be a meaningless
    * "unspecified" bucket).
    */
-  async summarize(userId: string, range: IncomeDateRange): Promise<IncomeSummaryAggregate> {
+  /** `currency` scopes the totals to the user's own books — nothing is converted. */
+  async summarize(
+    userId: string,
+    range: IncomeDateRange,
+    currency?: string,
+  ): Promise<IncomeSummaryAggregate> {
     const match: FilterQuery<IncomeDocument> = { userId: new Types.ObjectId(userId) };
+    if (currency) {
+      match.currency = currency;
+    }
     if (range.from || range.to) {
       match.receivedAt = {
         ...(range.from ? { $gte: range.from } : {}),
@@ -84,11 +92,16 @@ export class IncomeRepository extends BaseRepository<IncomeDocument> {
   }
 
   /** Total income for a user within a window — used by analytics for the monthly snapshot. */
-  async sumAmount(userId: string, range: { from: Date; to: Date }): Promise<number> {
+  async sumAmount(
+    userId: string,
+    range: { from: Date; to: Date },
+    currency?: string,
+  ): Promise<number> {
     const [result] = await this.aggregate<{ total: number }>([
       {
         $match: {
           userId: new Types.ObjectId(userId),
+          ...(currency ? { currency } : {}),
           receivedAt: { $gte: range.from, $lte: range.to },
         },
       },
@@ -102,6 +115,7 @@ export class IncomeRepository extends BaseRepository<IncomeDocument> {
     userId: string,
     range: { from: Date; to: Date },
     timezone?: string,
+    currency?: string,
   ): Promise<{ year: number; month: number; total: number }[]> {
     // Mongo does the calendar arithmetic in the caller's zone, so a late-evening
     // transaction lands in the month the *user* was in when they made it.
@@ -110,6 +124,7 @@ export class IncomeRepository extends BaseRepository<IncomeDocument> {
       {
         $match: {
           userId: new Types.ObjectId(userId),
+          ...(currency ? { currency } : {}),
           receivedAt: { $gte: range.from, $lte: range.to },
         },
       },

@@ -199,6 +199,31 @@ Check 'friend settlement recorded' ($fset.ok) "status=$($fset.status)"
 $friendGet2 = Api 'GET' "/friends/$fid" $tokenA $null
 Check 'friend net = 0 after settle' (Approx $friendGet2.body.data.net 0) "net=$($friendGet2.body.data.net)"
 
+# A group keeps one set of books: an expense in another currency is refused rather
+# than added to a balance that means something else (Spendes never converts).
+$wrongCur = Api 'POST' "/friends/$fid/expenses" $tokenA @{ description = 'Paid in dollars'; amount = 50; currency = 'USD'; splitStrategy = 'equal'; paidBy = @(@{ memberId = $fMine; amount = 50 }); splits = @(@{ memberId = $fMine }, @{ memberId = $fFriend }) }
+Check 'expense in another currency -> 400' ($wrongCur.status -eq 400) "status=$($wrongCur.status)"
+
+# A friendship can keep its books in another currency, and then sits outside the
+# headline totals instead of being added to them.
+$usdFriend = Api 'POST' '/friends' $tokenA @{ phoneNumber = '9700000123'; displayName = 'Dollar Dan'; currency = 'USD' }
+Check 'friendship in another currency' ($usdFriend.ok -and $usdFriend.body.data.currency -eq 'USD') "currency=$($usdFriend.body.data.currency)"
+$usdId = $usdFriend.body.data.friendshipId
+Api 'POST' "/friends/$usdId/expenses" $tokenA @{ description = 'Hosting'; amount = 40; currency = 'USD'; splitStrategy = 'equal'; paidBy = @(@{ memberId = $usdFriend.body.data.myMemberId; amount = 40 }); splits = @(@{ memberId = $usdFriend.body.data.myMemberId }, @{ memberId = $usdFriend.body.data.friendMemberId }) } | Out-Null
+$flAfter = Api 'GET' '/friends' $tokenA $null
+# Frank is settled by now, so the only outstanding balance is the $20 Dan owes.
+# It must NOT appear in the rupee total — that leak is exactly what this catches.
+Check 'a USD balance stays out of the INR total' ($flAfter.body.data.currency -eq 'INR' -and (Approx $flAfter.body.data.totalYouAreOwed 0)) "owed=$($flAfter.body.data.totalYouAreOwed) $($flAfter.body.data.currency)"
+$usdRow = $flAfter.body.data.friends | Where-Object { $_.friendshipId -eq $usdId }
+Check 'but shows on its own row in USD' ($usdRow.currency -eq 'USD' -and (Approx $usdRow.net 20)) "net=$($usdRow.net) $($usdRow.currency)"
+# The personal books are one currency too. A's rupee spending is 250.5 personal +
+# 650 group shares + 250 friend share = 1150.5; the $20 share from the USD
+# friendship is listed but not added, which is what this pins down (it would read
+# 1170.5 if a dollar were being counted as a rupee).
+$sumAfter = Api 'GET' '/expenses/summary' $tokenA $null
+Check 'personal totals stay in one currency' ($sumAfter.body.data.currency -eq 'INR' -and (Approx $sumAfter.body.data.totalAmount 1150.5)) "total=$($sumAfter.body.data.totalAmount) $($sumAfter.body.data.currency)"
+Check 'the other-currency friend is counted, not added' ($flAfter.body.data.otherCurrencyCount -eq 1) "n=$($flAfter.body.data.otherCurrencyCount)"
+
 # A standard group id is not a friend
 $notFriend = Api 'GET' "/friends/$gid" $tokenA $null
 Check 'standard group id not a friend -> 404' ($notFriend.status -eq 404) "status=$($notFriend.status)"

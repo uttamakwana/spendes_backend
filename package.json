@@ -14,6 +14,7 @@
     "start": "node dist/server.js",
     "start:dev": "tsx watch src/server.ts",
     "start:prod": "node dist/server.js",
+    "seed:demo": "tsx src/database/seed-demo.ts",
     "seed": "tsx src/database/seed.ts",
     "db:stats": "tsx src/database/db-stats.ts",
     "db:reset": "tsx src/database/reset-data.ts",

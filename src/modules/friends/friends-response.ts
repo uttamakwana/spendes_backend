@@ -44,10 +44,17 @@ export interface FriendResponse {
 /** Result of `GET /friends`: every friend plus the headline owed/owe totals. */
 export interface FriendsListResponse {
   friends: FriendResponse[];
+  /** The currency the totals below are in — the user's own. */
+  currency: string;
   /** Sum of positive balances — total others owe you across friends. */
   totalYouAreOwed: number;
   /** Sum of negative balances — total you owe across friends. */
   totalYouOwe: number;
   /** `totalYouAreOwed - totalYouOwe`. */
   net: number;
+  /**
+   * How many friendships are kept in another currency and so sit outside the
+   * totals. Spendes never converts, so they are counted, not added.
+   */
+  otherCurrencyCount: number;
 }
