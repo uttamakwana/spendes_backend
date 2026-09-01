@@ -432,6 +432,42 @@ Check 'confirming from the friend screen works too' ($confFriend.ok -and $confFr
 $bobInbox = @((Api 'GET' '/notifications' $tokenB $null).body.data.items | Where-Object { $_.type -eq 'connection_confirmed' })
 Check 'Bob is told R confirmed him' ($bobInbox.Count -ge 1) "rows=$($bobInbox.Count)"
 
+# 22. Balances roll-up — one number per person, across groups *and* friendships.
+# The Smoke Trip group is settled by now, so give it a fresh unsettled expense: A
+# pays 600, split equally with Bob. Bob is not a 1-on-1 friend, so a friends-only
+# total misses him entirely — which is the whole point of the roll-up.
+$rollExp = Api 'POST' "/groups/$gid/expenses" $tokenA @{ description = 'Late dinner'; amount = 600; splitStrategy = 'equal'; paidBy = @(@{ memberId = $mA; amount = 600 }); splits = @(@{ memberId = $mA }, @{ memberId = $mB }) }
+Check 'unsettled group expense created' $rollExp.ok "status=$($rollExp.status)"
+
+$friendsOnly = (Api 'GET' '/friends' $tokenA $null).body.data
+$roll = Api 'GET' '/balances' $tokenA $null
+Check 'balances roll-up loads' $roll.ok "status=$($roll.status)"
+Check 'roll-up is in the home currency' ($roll.body.data.currency -eq 'INR') "currency=$($roll.body.data.currency)"
+
+$bobRow = $roll.body.data.people | Where-Object { $_.name -like 'Bob*' }
+Check 'a group-only debtor appears' ($null -ne $bobRow) "found=$($null -ne $bobRow)"
+Check 'and names the group it came from' ($bobRow.sources[0].kind -eq 'group' -and $bobRow.sources[0].name -eq 'Smoke Trip') "source=$($bobRow.sources[0].name)"
+# Not the full 300: Bob was already owed 225 in this group, so his half of the new
+# dinner nets against that credit and leaves him owing 75. That netting is the
+# feature — the group's own balances are what get rolled up, not raw shares.
+Check 'the group debt is netted, not raw' (Approx $bobRow.net 75) "net=$($bobRow.net)"
+
+# Dan owes A from the 1-on-1 only, so that row is friendship-sourced.
+$danRow = $roll.body.data.people | Where-Object { $_.friendshipId -eq $fidR }
+Check 'a friendship balance appears too' ($null -ne $danRow -and $danRow.sources[0].kind -eq 'friend') "kind=$($danRow.sources[0].kind)"
+Check 'a friendship row carries its friendshipId' ($null -ne $danRow.friendshipId) "id set"
+
+# The headline total now exceeds the friends-only one, because the group counts.
+Check 'roll-up counts more than friendships alone' ($roll.body.data.youAreOwed -gt $friendsOnly.totalYouAreOwed) "roll-up=$($roll.body.data.youAreOwed) friends=$($friendsOnly.totalYouAreOwed)"
+Check 'and it is friendships + the group' (Approx $roll.body.data.youAreOwed ($friendsOnly.totalYouAreOwed + 300)) "roll-up=$($roll.body.data.youAreOwed)"
+
+# And the home overview reports the same figures, not a second opinion.
+$ovBal = (Api 'GET' '/analytics/overview' $tokenA $null).body.data.balances
+Check 'home overview matches the roll-up' ((Approx $ovBal.youAreOwed $roll.body.data.youAreOwed) -and (Approx $ovBal.youOwe $roll.body.data.youOwe)) "owed=$($ovBal.youAreOwed) owe=$($ovBal.youOwe)"
+
+# The USD friendship stays out of the rupee totals, listed on its own.
+Check 'another currency is separated, not summed' ($roll.body.data.otherCurrency.Count -ge 1) "n=$($roll.body.data.otherCurrency.Count)"
+
 # Unauthorized check
 $noauth = Api 'GET' '/users/me' $null $null
 Check 'no token -> 401' ($noauth.status -eq 401) "status=$($noauth.status)"

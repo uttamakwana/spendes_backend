@@ -9,6 +9,7 @@ import { incomeRouter } from './modules/income/income.routes';
 import { groupsRouter } from './modules/groups/groups.routes';
 import { splitsRouter } from './modules/splits/splits.routes';
 import { friendsRouter } from './modules/friends/friends.routes';
+import { balancesRouter } from './modules/balances/balances.routes';
 import { budgetsRouter } from './modules/budgets/budgets.routes';
 import { emisRouter } from './modules/emis/emis.routes';
 import { goalsRouter } from './modules/goals/goals.routes';
@@ -59,6 +60,8 @@ apiRouter.use('/groups', groupsRouter);
 // router so the bare `/groups/:id` routes match first; deeper paths fall through.
 apiRouter.use('/groups/:groupId', splitsRouter);
 apiRouter.use('/friends', friendsRouter);
+// Cross-group + friendship roll-up of who owes whom.
+apiRouter.use('/balances', balancesRouter);
 apiRouter.use('/budgets', budgetsRouter);
 apiRouter.use('/emis', emisRouter);
 apiRouter.use('/goals', goalsRouter);

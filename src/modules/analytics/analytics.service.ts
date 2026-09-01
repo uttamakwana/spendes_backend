@@ -9,7 +9,7 @@ import { incomeRepository } from '../income/income.repository';
 import { incomeService } from '../income/income.service';
 import { emisService } from '../emis/emis.service';
 import { investmentsService } from '../investments/investments.service';
-import { friendsService } from '../friends/friends.service';
+import { balancesService } from '../balances/balances.service';
 import { goalsRepository } from '../goals/goals.repository';
 import { computeGoalMetrics } from '../goals/goal-progress.util';
 import type { GoalDocument } from '../goals/goals.model';
@@ -52,7 +52,7 @@ export class AnalyticsService {
         investmentsService.summary(userId),
         goalsRepository.findActiveForUser(userId),
         this.monthlyAverages(userId, now, timezone),
-        friendsService.listFriends(userId),
+        balancesService.summary(userId),
       ]);
 
     const income = round2(incomeSummary.totalAmount);
@@ -95,9 +95,12 @@ export class AnalyticsService {
         gainLossPct: portfolio.gainLossPct,
         totalMonthlySip: portfolio.totalMonthlySip,
       },
+      // Every friendship *and* every group, netted per person — money you fronted
+      // for a flat is owed to you just as much as a one-on-one loan. Lifetime, not
+      // this month: a debt from March is still a debt in September.
       balances: {
-        youAreOwed: balances.totalYouAreOwed,
-        youOwe: balances.totalYouOwe,
+        youAreOwed: balances.youAreOwed,
+        youOwe: balances.youOwe,
         net: balances.net,
       },
       goals: {
