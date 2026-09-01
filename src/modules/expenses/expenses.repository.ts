@@ -1,6 +1,7 @@
 import { type FilterQuery, Types, type UpdateQuery } from 'mongoose';
 import { ExpenseSource } from '../../common/enums/expense-source';
 import { BaseRepository } from '../../database/base.repository';
+import { safeTimezone } from '../../common/utils/timezone';
 import { ExpenseModel, type ExpenseDocument } from './expenses.model';
 
 /** Inclusive date window applied to `spentAt` when summarizing. */
@@ -158,7 +159,11 @@ export class ExpensesRepository extends BaseRepository<ExpenseDocument> {
   async monthlyTotals(
     userId: string,
     range: { from: Date; to: Date },
+    timezone?: string,
   ): Promise<{ year: number; month: number; total: number }[]> {
+    // Mongo does the calendar arithmetic in the caller's zone, so a late-evening
+    // transaction lands in the month the *user* was in when they made it.
+    const zone = safeTimezone(timezone);
     const rows = await this.aggregate<{ _id: { year: number; month: number }; total: number }>([
       {
         $match: {
@@ -168,7 +173,10 @@ export class ExpensesRepository extends BaseRepository<ExpenseDocument> {
       },
       {
         $group: {
-          _id: { year: { $year: '$spentAt' }, month: { $month: '$spentAt' } },
+          _id: {
+            year: { $year: { date: '$spentAt', timezone: zone } },
+            month: { $month: { date: '$spentAt', timezone: zone } },
+          },
           total: { $sum: '$amount' },
         },
       },

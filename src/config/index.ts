@@ -69,6 +69,11 @@ export interface OtpConfig {
 export interface SmsConfig {
   provider: SmsProviderName;
   from: string;
+  twilio: {
+    accountSid?: string;
+    authToken?: string;
+    messagingServiceSid?: string;
+  };
 }
 
 export interface PaymentsConfig {
@@ -181,6 +186,11 @@ export const config: AppConfiguration = {
   sms: {
     provider: env.SMS_PROVIDER,
     from: env.SMS_FROM,
+    twilio: {
+      accountSid: env.TWILIO_ACCOUNT_SID,
+      authToken: env.TWILIO_AUTH_TOKEN,
+      messagingServiceSid: env.TWILIO_MESSAGING_SERVICE_SID,
+    },
   },
   payments: {
     provider: env.PAYMENT_PROVIDER,

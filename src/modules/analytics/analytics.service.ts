@@ -1,4 +1,6 @@
 import { createLogger } from '../../logger';
+import { safeTimezone, zonedMonthWindow, zonedParts } from '../../common/utils/timezone';
+import { usersService } from '../users/users.service';
 import { BudgetPeriod } from '../../common/enums/budget-period';
 import { resolvePeriodWindow } from '../budgets/budget-period.util';
 import { expensesRepository } from '../expenses/expenses.repository';
@@ -38,7 +40,8 @@ export class AnalyticsService {
   /** The home-dashboard snapshot for the current month plus standing-balance figures. */
   async overview(userId: string): Promise<AnalyticsOverviewResponse> {
     const now = new Date();
-    const window = resolvePeriodWindow(BudgetPeriod.Monthly, now);
+    const timezone = await this.resolveTimezone(userId);
+    const window = resolvePeriodWindow(BudgetPeriod.Monthly, now, timezone);
     const range = { from: window.from, to: window.to };
 
     const [expenseSummary, incomeSummary, emiSummary, portfolio, activeGoals, averages, balances] =
@@ -48,7 +51,7 @@ export class AnalyticsService {
         emisService.summary(userId),
         investmentsService.summary(userId),
         goalsRepository.findActiveForUser(userId),
-        this.monthlyAverages(userId, now),
+        this.monthlyAverages(userId, now, timezone),
         friendsService.listFriends(userId),
       ]);
 
@@ -123,7 +126,7 @@ export class AnalyticsService {
       emisService.summary(userId),
       investmentsService.summary(userId),
       goalsRepository.findActiveForUser(userId),
-      this.monthlyAverages(userId, now),
+      this.monthlyAverages(userId, now, await this.resolveTimezone(userId)),
     ]);
 
     return this.buildFeasibility(
@@ -138,23 +141,24 @@ export class AnalyticsService {
   /** Income vs expense for each of the trailing `months` (oldest → newest). */
   async cashflow(userId: string, months: number): Promise<CashflowResponse> {
     const now = new Date();
-    const from = new Date(now.getFullYear(), now.getMonth() - (months - 1), 1, 0, 0, 0, 0);
-    const to = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999);
-    const range = { from, to };
+    const timezone = await this.resolveTimezone(userId);
+    const range = this.trailingMonths(now, months, timezone);
 
     const [expenseMonths, incomeMonths] = await Promise.all([
-      expensesRepository.monthlyTotals(userId, range),
-      incomeRepository.monthlyTotals(userId, range),
+      expensesRepository.monthlyTotals(userId, range, timezone),
+      incomeRepository.monthlyTotals(userId, range, timezone),
     ]);
 
     const expenseByKey = new Map(expenseMonths.map((r) => [`${r.year}-${r.month}`, r.total]));
     const incomeByKey = new Map(incomeMonths.map((r) => [`${r.year}-${r.month}`, r.total]));
 
     const series: CashflowPoint[] = [];
+    const current = zonedParts(now, timezone);
     for (let i = months - 1; i >= 0; i -= 1) {
-      const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
-      const year = d.getFullYear();
-      const month = d.getMonth() + 1;
+      // Step back in whole calendar months from the user's current one.
+      const d = new Date(Date.UTC(current.year, current.month - i, 1));
+      const year = d.getUTCFullYear();
+      const month = d.getUTCMonth() + 1;
       const key = `${year}-${month}`;
       const incomeValue = round2(incomeByKey.get(key) ?? 0);
       const expenseValue = round2(expenseByKey.get(key) ?? 0);
@@ -173,8 +177,8 @@ export class AnalyticsService {
 
     return {
       months,
-      from,
-      to,
+      from: range.from,
+      to: range.to,
       series,
       totalIncome,
       totalExpense,
@@ -184,19 +188,32 @@ export class AnalyticsService {
 
   // --- Internals -------------------------------------------------------------
 
+  /** The window covering the trailing `months` calendar months in `timezone`. */
+  private trailingMonths(now: Date, months: number, timezone: string) {
+    return {
+      from: zonedMonthWindow(now, timezone, months - 1).from,
+      to: zonedMonthWindow(now, timezone).to,
+    };
+  }
+
+  /** The user's IANA zone, so every calendar figure here is *their* month. */
+  private async resolveTimezone(userId: string): Promise<string> {
+    const user = await usersService.findEntityById(userId);
+    return safeTimezone(user?.timezone);
+  }
+
   /** Trailing-average monthly income and expense over `FEASIBILITY_BASIS_MONTHS`. */
   private async monthlyAverages(
     userId: string,
     now: Date,
+    timezone: string,
   ): Promise<{ avgIncome: number; avgExpense: number; basisMonths: number }> {
     const basisMonths = FEASIBILITY_BASIS_MONTHS;
-    const from = new Date(now.getFullYear(), now.getMonth() - (basisMonths - 1), 1, 0, 0, 0, 0);
-    const to = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999);
-    const range = { from, to };
+    const range = this.trailingMonths(now, basisMonths, timezone);
 
     const [incomeMonths, expenseMonths] = await Promise.all([
-      incomeRepository.monthlyTotals(userId, range),
-      expensesRepository.monthlyTotals(userId, range),
+      incomeRepository.monthlyTotals(userId, range, timezone),
+      expensesRepository.monthlyTotals(userId, range, timezone),
     ]);
 
     const avgIncome = round2(incomeMonths.reduce((s, r) => s + r.total, 0) / basisMonths);

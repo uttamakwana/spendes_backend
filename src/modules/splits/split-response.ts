@@ -1,4 +1,5 @@
 import type { PaymentMethod } from '../../common/enums/payment-method';
+import type { PaymentHandleType } from '../../common/reference/countries';
 import type { GroupExpenseDocument } from './group-expense.model';
 import type { SettlementDocument } from './settlement.model';
 import type { SplitStrategy } from './splits.enums';
@@ -122,13 +123,22 @@ export interface GroupBalancesResponse {
   myMemberId?: string;
 }
 
-/** The UPI payment instruction returned by the settle-up intent endpoint. */
+/**
+ * The payment instruction returned by the settle-up intent endpoint. `uri` is a
+ * deep link to open (UPI, Venmo, PayPal, Cash App); it is absent when the payee's
+ * rail can't be linked into, in which case the client shows `payeeHandle` to copy.
+ */
 export interface SettlementIntentResponse {
   provider: string;
-  uri: string;
+  uri?: string;
+  /** Which rail this is, so the client can pick its copy and fallbacks. */
+  handleType: PaymentHandleType;
+  /** Human label for the rail, e.g. "UPI", "PayPal". */
+  railLabel: string;
   toMemberId: string;
   payeeName: string;
-  payeeVpa: string;
+  /** The payee's handle on that rail — always present, shown if the link fails. */
+  payeeHandle: string;
   amount: number;
   currency: string;
   note?: string;

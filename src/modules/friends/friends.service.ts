@@ -6,6 +6,7 @@ import { resolveMemberConsent, type GroupDocument } from '../groups/groups.model
 import { groupsRepository } from '../groups/groups.repository';
 import { groupsService } from '../groups/groups.service';
 import { notificationsService } from '../notifications/notifications.service';
+import { paymentsService } from '../payments/payments.service';
 import { splitsService } from '../splits/splits.service';
 import { usersService } from '../users/users.service';
 import type {
@@ -223,6 +224,10 @@ export class FriendsService {
       isRegistered: Boolean(friend.userId),
       dialCode: friend.dialCode,
       phoneNumber: friend.phoneNumber,
+      paymentHandleType: friendUser?.paymentHandle?.type,
+      canPayDirectly: friendUser?.paymentHandle
+        ? paymentsService.canPay(friendUser.paymentHandle.type, group.currency)
+        : false,
       currency: group.currency,
       net: balances.myNet ?? 0,
       consent: myConsent,

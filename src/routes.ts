@@ -19,6 +19,7 @@ import { pushRouter } from './modules/push/push.routes';
 import { waitlistRouter } from './modules/waitlist/waitlist.routes';
 import { adminRouter } from './modules/admin/admin.routes';
 import { appRouter } from './modules/app/app.routes';
+import { referenceRouter } from './modules/reference/reference.routes';
 import { healthRouter } from './health/health.routes';
 
 export interface AppInfo {
@@ -68,4 +69,6 @@ apiRouter.use('/push', pushRouter);
 apiRouter.use('/waitlist', waitlistRouter);
 apiRouter.use('/admin', adminRouter);
 apiRouter.use('/app', appRouter);
+// Public reference data (countries + currencies) — needed before anyone signs up.
+apiRouter.use('/reference', referenceRouter);
 apiRouter.use('/health', healthRouter);

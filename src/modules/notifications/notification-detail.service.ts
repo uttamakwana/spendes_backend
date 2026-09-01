@@ -5,6 +5,7 @@ import { resolveMemberConsent } from '../groups/groups.model';
 import { groupsRepository } from '../groups/groups.repository';
 import type { GroupBalancesResponse, GroupExpenseResponse } from '../splits/split-response';
 import { splitsService } from '../splits/splits.service';
+import { paymentsService } from '../payments/payments.service';
 import { usersService } from '../users/users.service';
 import type { NotificationDocument } from './notification.model';
 import {
@@ -253,10 +254,18 @@ export class NotificationDetailService {
     }
 
     const payeeUser = await usersService.findEntityById(payee.userId.toString());
-    if (payeeUser?.upiId) {
+    const handle = payeeUser?.paymentHandle;
+    if (handle?.value && paymentsService.canPay(handle.type, group.currency)) {
       actions.canPay = amount > 0;
+      actions.payRailLabel = paymentsService.railLabel(handle.type);
+    } else if (handle?.value && paymentsService.isLinkable(handle.type)) {
+      // Their rail exists but can't carry this group's currency — no conversion here.
+      actions.payBlockedReason = `${paymentsService.railLabel(handle.type)} can't settle a ${group.currency} balance`;
+    } else if (handle?.value) {
+      // A handle we can't deep-link into: still worth showing, just not as a button.
+      actions.payBlockedReason = `${this.firstName(payee)} takes payment at ${handle.value}`;
     } else {
-      actions.payBlockedReason = `${this.firstName(payee)} hasn't added a UPI ID yet`;
+      actions.payBlockedReason = `${this.firstName(payee)} hasn't added a way to be paid yet`;
     }
 
     return actions;

@@ -7,7 +7,11 @@ import { createLogger } from '../../logger';
 import { storageService } from '../storage/storage.service';
 import { cascadeDeleteUser, type CascadeResult } from './user-cascade';
 import { toUserResponse, type UserResponse } from './user-response';
-import { resolveNotificationPreferences, type UserDocument } from './users.model';
+import {
+  resolveNotificationPreferences,
+  type PaymentHandle,
+  type UserDocument,
+} from './users.model';
 import type { UpdateNotificationPreferencesInput, UpdateUserInput } from './users.validation';
 import { usersRepository, UsersRepository } from './users.repository';
 
@@ -19,8 +23,12 @@ export interface CreateUserData {
   lastName: string;
   email?: string;
   defaultCurrency?: string;
+  /** ISO country chosen at sign-up; drives currency and the default settle rail. */
+  country?: string;
+  /** IANA zone reported by the device at sign-up. */
+  timezone?: string;
   /** Optional at sign-up — lets friends settle up with them straight away. */
-  upiId?: string;
+  paymentHandle?: PaymentHandle;
   isPhoneVerified?: boolean;
 }
 
@@ -172,7 +180,9 @@ export class UsersService {
       lastName: data.lastName,
       email: data.email?.toLowerCase(),
       defaultCurrency: data.defaultCurrency,
-      upiId: data.upiId,
+      country: data.country,
+      timezone: data.timezone,
+      paymentHandle: data.paymentHandle,
       isPhoneVerified: data.isPhoneVerified ?? true,
     });
     this.logger.info(`User registered: ${user._id.toString()}`);

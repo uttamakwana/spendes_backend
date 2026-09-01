@@ -259,20 +259,25 @@ export class SplitsService {
 
     if (!payee.userId) {
       throw new BadRequestException(
-        'This member has not joined Spendes yet, so they have no UPI id',
+        'This member has not joined Spendes yet, so there is nowhere to send the money',
       );
     }
     const payeeUser = await usersService.findEntityById(payee.userId.toString());
-    if (!payeeUser?.upiId) {
-      throw new BadRequestException('This member has not added a UPI id to receive payments');
+    if (!payeeUser?.paymentHandle?.value) {
+      throw new BadRequestException(
+        'This member has not added a way to be paid yet. You can still mark the payment as done.',
+      );
     }
 
     // A unique per-payment reference (the UPI `tr`). The client passes it back when
     // recording, so a payment correlates to one settlement and can't double-record.
     const reference = randomUUID().replace(/-/g, '');
 
-    const intent = paymentsService.createUpiIntent({
-      payeeVpa: payeeUser.upiId,
+    // The rail follows the payee, not the payer: an Indian member is paid over UPI
+    // and an American one over Venmo, in the same group on the same evening.
+    const intent = paymentsService.createIntent({
+      handleType: payeeUser.paymentHandle.type,
+      handleValue: payeeUser.paymentHandle.value,
       payeeName: payee.displayName,
       amount: dto.amount,
       currency: group.currency,
@@ -283,9 +288,11 @@ export class SplitsService {
     return {
       provider: intent.provider,
       uri: intent.uri,
+      handleType: intent.handleType,
+      railLabel: intent.railLabel,
       toMemberId: payee._id.toString(),
       payeeName: intent.payeeName,
-      payeeVpa: intent.payeeVpa,
+      payeeHandle: intent.payeeHandle,
       amount: intent.amount,
       currency: intent.currency,
       note: intent.note,

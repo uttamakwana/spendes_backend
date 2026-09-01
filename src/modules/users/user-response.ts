@@ -1,5 +1,6 @@
 import type { Role } from '../../common/enums/role';
 import { PlanType } from '../../common/enums/plan-type';
+import type { PaymentHandleType } from '../../common/reference/countries';
 import {
   resolveNotificationPreferences,
   type NotificationPreferences,
@@ -23,7 +24,12 @@ export interface UserResponse {
   avatarUrl?: string;
   roles: Role[];
   plan: PlanType;
-  upiId?: string;
+  /** How this user gets paid back: the rail and the handle on it. */
+  paymentHandle?: { type: PaymentHandleType; value: string };
+  /** ISO 3166-1 alpha-2 — drives currency, phone rule and settle-up rail. */
+  country: string;
+  /** IANA zone, so "this month" means their month. */
+  timezone: string;
   notificationPreferences: NotificationPreferences;
   defaultCurrency: string;
   isPhoneVerified: boolean;
@@ -48,7 +54,11 @@ export function toUserResponse(user: UserDocument): UserResponse {
     avatarUrl: user.avatarUrl,
     roles: user.roles,
     plan: user.plan ?? PlanType.Free,
-    upiId: user.upiId,
+    paymentHandle: user.paymentHandle
+      ? { type: user.paymentHandle.type, value: user.paymentHandle.value }
+      : undefined,
+    country: user.country ?? 'IN',
+    timezone: user.timezone ?? 'Asia/Kolkata',
     notificationPreferences: resolveNotificationPreferences(user.notificationPreferences),
     defaultCurrency: user.defaultCurrency,
     isPhoneVerified: user.isPhoneVerified,

@@ -143,7 +143,9 @@ export interface NotificationActions {
   payAmount: number;
   payeeMemberId?: string;
   payerMemberId?: string;
-  /** Set when settling over UPI isn't possible, so the UI can say why. */
+  /** The payee's rail ("UPI", "PayPal", "Venmo"), for the Pay button's copy. */
+  payRailLabel?: string;
+  /** Set when there's no rail we can open, so the UI can say why. */
   payBlockedReason?: string;
 }
 

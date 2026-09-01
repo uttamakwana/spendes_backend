@@ -4,6 +4,7 @@ import { buildSort } from '../../common/utils/pagination';
 import { paginate } from '../../common/utils/response';
 import type { PaginatedData } from '../../common/types/api-response';
 import { createLogger } from '../../logger';
+import { formatMoney } from '../../common/reference/currencies';
 import { MemberConsent } from '../groups/groups.enums';
 import { groupsRepository } from '../groups/groups.repository';
 import { pushService } from '../push/push.service';
@@ -497,10 +498,9 @@ export class NotificationsService {
     return 'Someone';
   }
 
-  /** Renders an amount for notification copy (₹ for INR, code suffix otherwise). */
+  /** Renders an amount for notification copy in the split's own currency. */
   private formatAmount(amount: number, currency: string): string {
-    const value = Math.round(amount).toLocaleString('en-IN');
-    return currency === 'INR' ? `₹${value}` : `${value} ${currency}`;
+    return formatMoney(Math.round(amount), currency);
   }
 }
 

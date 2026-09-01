@@ -42,21 +42,24 @@ Write-Host "Phones: A=$phoneA B=$phoneB C=$phoneC D=$phoneD F=$phoneF`n"
 
 # 1. Register user A
 Api 'POST' '/auth/otp/request' $null @{ dialCode = '+91'; phoneNumber = $phoneA } | Out-Null
-$regA = Api 'POST' '/auth/register' $null @{ dialCode = '+91'; phoneNumber = $phoneA; firstName = 'Smoke'; lastName = 'A'; email = "smoke$rA@example.com"; defaultCurrency = 'INR'; upiId = 'signup@okaxis'; otp = '123456' }
+$regA = Api 'POST' '/auth/register' $null @{ dialCode = '+91'; phoneNumber = $phoneA; country = 'IN'; timezone = 'Asia/Kolkata'; firstName = 'Smoke'; lastName = 'A'; email = "smoke$rA@example.com"; defaultCurrency = 'INR'; paymentHandle = @{ type = 'upi'; value = 'signup@okaxis' }; otp = '123456' }
 Check 'register A' $regA.ok "status=$($regA.status)"
 $tokenA = $regA.body.data.tokens.accessToken
 $userIdA = $regA.body.data.user.id
 Check 'A plan=free' ($regA.body.data.user.plan -eq 'free') "plan=$($regA.body.data.user.plan)"
 # The optional UPI id offered during onboarding is captured at sign-up.
-Check 'A upiId captured at sign-up' ($regA.body.data.user.upiId -eq 'signup@okaxis') "upiId=$($regA.body.data.user.upiId)"
-$badUpi = Api 'POST' '/auth/register' $null @{ dialCode = '+91'; phoneNumber = '9123456789'; firstName = 'Bad'; lastName = 'Upi'; upiId = 'not-a-upi'; otp = '123456' }
-Check 'malformed sign-up upiId -> 400' ($badUpi.status -eq 400) "status=$($badUpi.status)"
+Check 'A payment handle captured at sign-up' ($regA.body.data.user.paymentHandle.value -eq 'signup@okaxis') "handle=$($regA.body.data.user.paymentHandle.value)"
+Check 'A country + currency + timezone' ($regA.body.data.user.country -eq 'IN' -and $regA.body.data.user.defaultCurrency -eq 'INR' -and $regA.body.data.user.timezone -eq 'Asia/Kolkata') "country=$($regA.body.data.user.country)"
+$badUpi = Api 'POST' '/auth/register' $null @{ dialCode = '+91'; phoneNumber = '9123456789'; firstName = 'Bad'; lastName = 'Upi'; paymentHandle = @{ type = 'upi'; value = 'not-a-upi' }; otp = '123456' }
+Check 'malformed sign-up handle -> 400' ($badUpi.status -eq 400) "status=$($badUpi.status)"
 
 # 2. Profile + set UPI id
 $me = Api 'GET' '/users/me' $tokenA $null
 Check 'GET /users/me' ($me.ok -and $me.body.data.id -eq $userIdA) "id match"
-$upd = Api 'PATCH' '/users/me' $tokenA @{ upiId = 'smokeuser@okhdfcbank' }
-Check 'set upiId' ($upd.ok -and $upd.body.data.upiId -eq 'smokeuser@okhdfcbank') "upiId=$($upd.body.data.upiId)"
+$upd = Api 'PATCH' '/users/me' $tokenA @{ paymentHandle = @{ type = 'upi'; value = 'smokeuser@okhdfcbank' } }
+Check 'set payment handle' ($upd.ok -and $upd.body.data.paymentHandle.value -eq 'smokeuser@okhdfcbank') "handle=$($upd.body.data.paymentHandle.value)"
+$wrongRail = Api 'PATCH' '/users/me' $tokenA @{ paymentHandle = @{ type = 'venmo'; value = 'not a venmo name!' } }
+Check 'handle validated per rail -> 400' ($wrongRail.status -eq 400) "status=$($wrongRail.status)"
 
 # 3. Personal expense + income
 $exp = Api 'POST' '/expenses' $tokenA @{ amount = 250.5; category = 'Food'; paymentMethod = 'upi'; merchant = 'Cafe' }

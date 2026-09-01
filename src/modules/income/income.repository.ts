@@ -1,5 +1,6 @@
 import { type FilterQuery, Types, type UpdateQuery } from 'mongoose';
 import { BaseRepository } from '../../database/base.repository';
+import { safeTimezone } from '../../common/utils/timezone';
 import { IncomeModel, type IncomeDocument } from './income.model';
 
 /** Inclusive date window applied to `receivedAt` when summarizing. */
@@ -100,7 +101,11 @@ export class IncomeRepository extends BaseRepository<IncomeDocument> {
   async monthlyTotals(
     userId: string,
     range: { from: Date; to: Date },
+    timezone?: string,
   ): Promise<{ year: number; month: number; total: number }[]> {
+    // Mongo does the calendar arithmetic in the caller's zone, so a late-evening
+    // transaction lands in the month the *user* was in when they made it.
+    const zone = safeTimezone(timezone);
     const rows = await this.aggregate<{ _id: { year: number; month: number }; total: number }>([
       {
         $match: {
@@ -110,7 +115,10 @@ export class IncomeRepository extends BaseRepository<IncomeDocument> {
       },
       {
         $group: {
-          _id: { year: { $year: '$receivedAt' }, month: { $month: '$receivedAt' } },
+          _id: {
+            year: { $year: { date: '$receivedAt', timezone: zone } },
+            month: { $month: { date: '$receivedAt', timezone: zone } },
+          },
           total: { $sum: '$amount' },
         },
       },

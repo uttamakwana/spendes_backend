@@ -109,7 +109,13 @@ const envSchema = z.object({
 
   // --- SMS gateway ---
   SMS_PROVIDER: z.nativeEnum(SmsProviderName).default(SmsProviderName.Console),
+  // Sender id or E.164 number. Alphanumeric ids are refused in some countries
+  // (the US among them) — prefer a messaging service for international delivery.
   SMS_FROM: z.string().default('Spendes'),
+  TWILIO_ACCOUNT_SID: z.string().optional(),
+  TWILIO_AUTH_TOKEN: z.string().optional(),
+  // Lets Twilio pick a compliant sender per destination country.
+  TWILIO_MESSAGING_SERVICE_SID: z.string().optional(),
 
   // --- Payments (settle-up rail) ---
   PAYMENT_PROVIDER: z.nativeEnum(PaymentProviderName).default(PaymentProviderName.UpiIntent),
@@ -137,8 +143,10 @@ const envSchema = z.object({
   ENTITLEMENTS_ENFORCED: booleanFromString(false),
 
   // --- Phone numbering ---
+  // `*` means every country in `common/reference/countries.ts`. Narrow it to a
+  // comma-separated list (e.g. `+91,+1`) to open markets one at a time.
   PHONE_DEFAULT_DIAL_CODE: z.string().default('+91'),
-  PHONE_ALLOWED_DIAL_CODES: z.string().default('+91'),
+  PHONE_ALLOWED_DIAL_CODES: z.string().default('*'),
 
   // --- Rate limiting ---
   THROTTLE_TTL: intFromString(60).pipe(z.number().int().min(1)),

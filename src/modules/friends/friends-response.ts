@@ -1,4 +1,5 @@
 import type { MemberConsent } from '../groups/groups.enums';
+import type { PaymentHandleType } from '../../common/reference/countries';
 
 /**
  * Public shape of a friend (a 1-on-1 friendship). `friendshipId` is the underlying
@@ -18,6 +19,10 @@ export interface FriendResponse {
   isRegistered: boolean;
   dialCode?: string;
   phoneNumber?: string;
+  /** The friend's settle-up rail, so the Pay button can name it before we build an intent. */
+  paymentHandleType?: PaymentHandleType;
+  /** True when their rail can actually carry this friendship's currency. */
+  canPayDirectly: boolean;
   currency: string;
   net: number;
   /**

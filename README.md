@@ -103,7 +103,7 @@ src/
 │   └── base.repository.ts    # generic CRUD + pagination
 ├── modules/
 │   ├── auth/                 # phone + OTP auth, JWT, pluggable SMS provider
-│   ├── users/                # profile (incl. plan + UPI id) + admin user CRUD
+│   ├── users/                # profile (plan, country, timezone, payment handle) + admin CRUD
 │   ├── categories/           # global expense/income reference data (seeded)
 │   ├── expenses/             # personal expenses (+ materialized group/friend shares)
 │   ├── income/               # income tracking + summary
@@ -116,7 +116,8 @@ src/
 │   ├── investments/          # portfolio holdings + allocation / gain-loss
 │   ├── analytics/            # cross-module dashboard (overview, cash-flow)
 │   ├── entitlements/         # plan/feature gate (dormant until the Pro tier)
-│   └── payments/             # pluggable payment provider (UPI intent)
+│   ├── payments/             # settle-up rails per country (UPI, PayPal, Venmo, Cash App)
+│   └── reference/            # public country + currency reference data
 ├── health/                   # /health probe (Mongo, memory, Redis)
 ├── redis/                    # optional ioredis client + service
 └── openapi/                  # OpenAPI document built from the Zod schemas
@@ -294,12 +295,12 @@ A ready-to-import Postman collection lives in [`postman/`](postman/).
 | Module | Routes | Notes |
 | ------ | ------ | ----- |
 | **Auth** | `POST /auth/otp/request·register·login·refresh·logout` | Phone + OTP; bearer tokens in the JSON body |
-| **Users** | `GET/PATCH /users/me`, `GET/DELETE /users/:id` (admin) | Profile incl. `plan` (free/pro) + `upiId` |
+| **Users** | `GET/PATCH /users/me`, `GET/DELETE /users/:id` (admin) | Profile incl. `plan` (free/pro), `country`, `timezone` and `paymentHandle` |
 | **Categories** | `GET /categories`, `POST/PATCH/DELETE` (admin) | Global, seeded, icon-first reference data |
 | **Expenses** | `…/expenses` CRUD + `GET /expenses/summary` | Includes **materialized group/friend shares** (`source=group_share`, read-only) |
 | **Income** | `…/income` CRUD + `GET /income/summary` | Per-category / per-source breakdowns |
 | **Groups** | `…/groups` CRUD + `…/:id/members` | Invite by phone → placeholders auto-link on registration |
-| **Splits** | `…/groups/:id/expenses`, `…/balances`, `…/settlements`, `…/settlements/intent` | 4 split strategies, debt simplification, UPI settle-up |
+| **Splits** | `…/groups/:id/expenses`, `…/balances`, `…/settlements`, `…/settlements/intent` | 4 split strategies, debt simplification, settle-up over the payee's own rail |
 | **Friends** | `…/friends` + `…/:id/expenses·settlements·settlements/intent·confirm·decline` | 1-on-1 direct splits (a 2-person "direct" group, hidden from the groups list) |
 | **Notifications** | `…/notifications`, `…/:id` (review), `…/:id/confirm·dispute·read`, `…/read-all`, `…/unread-count` | Activity inbox + the split-request review flow: someone can add you and split with you before you have added them back, so the recipient gets one screen to confirm, pay, or flag it — and confirming or paying is what makes the connection mutual (`consent` on the membership) |
 | **Budgets** | `…/budgets` CRUD | Live `spent`/`remaining`/`status` per period (incl. shares) |
@@ -308,7 +309,29 @@ A ready-to-import Postman collection lives in [`postman/`](postman/).
 | **Investments** | `…/investments` CRUD + `GET /investments/summary` | Gain/loss + allocation by asset class |
 | **Analytics** | `GET /analytics/overview`, `GET /analytics/cashflow` | Cross-module dashboard, savings rate, net worth |
 
+### Countries, currencies and timezones
+
+Spendes is not India-only. Everything that varies by country lives in one table
+(`src/common/reference/countries.ts`): dial code, phone-number shape, currency, the
+settle-up rail people there use, and a fallback timezone. Adding a market is a row
+there — `PHONE_ALLOWED_DIAL_CODES=*` (the default) accepts every country in it, and
+a comma-separated list narrows that when opening markets one at a time.
+
+Three rules make it hang together:
+
+- **One currency per record, never converted.** A user's country sets their
+  `defaultCurrency`; expenses, groups and budgets inherit it. There is no FX rate
+  anywhere in the system, so no figure is ever silently restated.
+- **The settle-up rail follows the payee.** `paymentHandle` is `{ type, value }` —
+  a UPI VPA in India, a PayPal.me/Venmo/Cash App username elsewhere — and
+  `payments.service` builds the matching deep link. A rail that can't carry the
+  balance's currency (Venmo settling rupees) is refused rather than approximated.
+- **Calendar windows are drawn in the user's timezone.** Budgets and analytics use
+  `common/utils/timezone.ts`, so "this month" is the user's month, not the server's.
+
+`GET /reference/countries` exposes the table publicly, because the sign-up screen
+needs it before anyone has an account.
+
 Cross-cutting seams (no public routes yet): **entitlements** (plan/feature gate,
-dormant via `ENTITLEMENTS_ENFORCED=false`) and **payments** (pluggable provider, UPI
-intent today). See [`docs/FRONTEND_PLAN.md`](docs/FRONTEND_PLAN.md) for the full API
+dormant via `ENTITLEMENTS_ENFORCED=false`). See [`docs/FRONTEND_PLAN.md`](docs/FRONTEND_PLAN.md) for the full API
 contract and an Expo / React Native + TanStack Query build plan.

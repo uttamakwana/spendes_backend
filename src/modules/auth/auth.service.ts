@@ -63,14 +63,23 @@ export class AuthService {
     const phone = this.phone.normalize(dto);
     await this.otp.verify(phone, dto.otp);
 
+    // Country is what localises the account: currency, and the settle-up rail we
+    // offer. It comes from the picker when the client sends it, and from the dial
+    // code otherwise — which is why a shared code like +1 prefers the explicit one.
+    const country = phone.country;
+
     const user = await this.users.createFromRegistration({
       dialCode: phone.dialCode,
       phoneNumber: phone.phoneNumber,
       firstName: dto.firstName,
       lastName: dto.lastName,
       email: dto.email,
-      defaultCurrency: dto.defaultCurrency,
-      upiId: dto.upiId,
+      country: country?.code,
+      timezone: dto.timezone ?? country?.timezone,
+      // An explicit currency wins (someone abroad may want their home currency),
+      // otherwise the country's.
+      defaultCurrency: dto.defaultCurrency ?? country?.currency,
+      paymentHandle: dto.paymentHandle,
       isPhoneVerified: true,
     });
 
