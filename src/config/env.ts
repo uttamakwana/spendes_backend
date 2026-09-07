@@ -38,6 +38,18 @@ export enum StorageProviderName {
   Cloudinary = 'cloudinary',
 }
 
+/** LLM backends behind the AI assistant (natural-language entry + spending insights). */
+export enum AiProviderName {
+  /**
+   * Deterministic offline stand-in. Answers from the caller's own heuristic
+   * fallback — no key, no network, no spend — so the feature works in tests, in
+   * CI, and in a demo on a plane. The default for exactly that reason.
+   */
+  Mock = 'mock',
+  /** Anthropic Claude via the official SDK. */
+  Anthropic = 'anthropic',
+}
+
 /**
  * Parses common truthy string representations into a real boolean. Needed because
  * everything coming from `process.env` is a string.
@@ -136,6 +148,24 @@ const envSchema = z.object({
   // Optional. Only required if "Enhanced Security for Push Notifications" is
   // enabled in the Expo dashboard; otherwise tokens send unauthenticated.
   EXPO_ACCESS_TOKEN: z.string().optional(),
+
+  // --- AI assistant (natural-language entry + spending insights) ---
+  // `mock` by default: every AI route answers from its own deterministic fallback,
+  // so the feature is fully exercisable with no key and no spend. Set `anthropic`
+  // plus a key to run it against a real model.
+  AI_PROVIDER: z.nativeEnum(AiProviderName).default(AiProviderName.Mock),
+  // Required only when AI_PROVIDER=anthropic (validated in the provider).
+  ANTHROPIC_API_KEY: z.string().optional(),
+  AI_MODEL: z.string().default('claude-opus-5'),
+  // A ceiling, not a spend — only tokens actually generated are billed. Kept
+  // generous because adaptive thinking draws from the same budget as the answer.
+  AI_MAX_TOKENS: intFromString(16_000).pipe(z.number().int().min(1024)),
+  // A phone is waiting on these calls, so fail well inside the client's own
+  // timeout rather than sitting on the SDK's 10-minute default.
+  AI_TIMEOUT_MS: intFromString(45_000).pipe(z.number().int().min(1_000)),
+  // Per-user ceiling on model-backed requests, enforced per route.
+  AI_RATE_LIMIT: intFromString(20).pipe(z.number().int().min(1)),
+  AI_RATE_WINDOW_SECONDS: intFromString(3_600).pipe(z.number().int().min(1)),
 
   // --- Monetization / entitlements ---
   // Keep OFF through the MVP: every plan gets every feature. Flip to true when the
