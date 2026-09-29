@@ -1,6 +1,19 @@
-import { env, Environment, SmsProviderName, PaymentProviderName, StorageProviderName } from './env';
+import {
+  env,
+  AiProviderName,
+  Environment,
+  SmsProviderName,
+  PaymentProviderName,
+  StorageProviderName,
+} from './env';
 
-export { Environment, SmsProviderName, PaymentProviderName, StorageProviderName } from './env';
+export {
+  AiProviderName,
+  Environment,
+  SmsProviderName,
+  PaymentProviderName,
+  StorageProviderName,
+} from './env';
 
 /**
  * Splits a comma-separated env value into a list, or returns the literal `*`
@@ -69,6 +82,11 @@ export interface OtpConfig {
 export interface SmsConfig {
   provider: SmsProviderName;
   from: string;
+  twilio: {
+    accountSid?: string;
+    authToken?: string;
+    messagingServiceSid?: string;
+  };
 }
 
 export interface PaymentsConfig {
@@ -95,6 +113,20 @@ export interface StorageConfig {
 export interface PushConfig {
   /** Expo access token; set only when "enhanced security" push is enabled. */
   expoAccessToken?: string;
+}
+
+export interface AiConfig {
+  provider: AiProviderName;
+  /** Model id the active provider should use (ignored by the mock). */
+  model: string;
+  /** Upper bound on tokens per response — a cap, not a committed spend. */
+  maxTokens: number;
+  timeoutMs: number;
+  /** Per-user request ceiling on the model-backed routes. */
+  rateLimit: { limit: number; windowSeconds: number };
+  anthropic: {
+    apiKey?: string;
+  };
 }
 
 export interface EntitlementsConfig {
@@ -129,6 +161,7 @@ export interface AppConfiguration {
   payments: PaymentsConfig;
   storage: StorageConfig;
   push: PushConfig;
+  ai: AiConfig;
   entitlements: EntitlementsConfig;
   phone: PhoneConfig;
   throttle: ThrottleConfig;
@@ -181,6 +214,11 @@ export const config: AppConfiguration = {
   sms: {
     provider: env.SMS_PROVIDER,
     from: env.SMS_FROM,
+    twilio: {
+      accountSid: env.TWILIO_ACCOUNT_SID,
+      authToken: env.TWILIO_AUTH_TOKEN,
+      messagingServiceSid: env.TWILIO_MESSAGING_SERVICE_SID,
+    },
   },
   payments: {
     provider: env.PAYMENT_PROVIDER,
@@ -198,6 +236,16 @@ export const config: AppConfiguration = {
   },
   push: {
     expoAccessToken: env.EXPO_ACCESS_TOKEN || undefined,
+  },
+  ai: {
+    provider: env.AI_PROVIDER,
+    model: env.AI_MODEL,
+    maxTokens: env.AI_MAX_TOKENS,
+    timeoutMs: env.AI_TIMEOUT_MS,
+    rateLimit: { limit: env.AI_RATE_LIMIT, windowSeconds: env.AI_RATE_WINDOW_SECONDS },
+    anthropic: {
+      apiKey: env.ANTHROPIC_API_KEY || undefined,
+    },
   },
   entitlements: {
     enforced: env.ENTITLEMENTS_ENFORCED,

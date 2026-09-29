@@ -3,6 +3,7 @@ import { createApp } from './app';
 import { config } from './config';
 import { connectDatabase, disconnectDatabase } from './database/connection';
 import { logger } from './logger';
+import { migratePaymentHandles } from './database/payment-handle.migration';
 import { seedCategories } from './modules/categories/categories.seed';
 import { redisService } from './redis/redis.service';
 
@@ -16,6 +17,14 @@ async function bootstrap(): Promise<void> {
     await seedCategories();
   } catch (error) {
     logger.error({ err: error }, 'Category seeding failed — continuing startup');
+  }
+
+  // Carry pre-internationalisation accounts onto the generalised settle-up handle.
+  // Idempotent and non-fatal, like the seeder above.
+  try {
+    await migratePaymentHandles();
+  } catch (error) {
+    logger.error({ err: error }, 'Payment-handle migration failed — continuing startup');
   }
 
   const app = createApp();

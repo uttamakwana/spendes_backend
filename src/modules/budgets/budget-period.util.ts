@@ -1,54 +1,49 @@
 import { BudgetPeriod } from '../../common/enums/budget-period';
+import {
+  safeTimezone,
+  zonedMonthWindow,
+  zonedWeekWindow,
+  zonedYearWindow,
+  type Window,
+} from '../../common/utils/timezone';
 
 /** An inclusive date window [from, to]. */
-export interface DateWindow {
-  from: Date;
-  to: Date;
-}
+export type DateWindow = Window;
 
 /**
  * Resolves the active window for a budget given "now": the current calendar month,
  * ISO week (Monday–Sunday), or calendar year for recurring periods, or the explicit
- * `startDate`/`endDate` for a custom budget. Boundaries are in server-local time
- * (good enough for the India MVP; revisit if per-user timezones are added). Pure so
- * the service can pass `new Date()` and tests can pass a fixed date.
+ * `startDate`/`endDate` for a custom budget.
+ *
+ * Boundaries are drawn in `timezone` — the budget owner's zone — because "this
+ * month" is a question about their calendar, not the server's. A user in New York
+ * asking on the 31st at 8pm is still in this month even though the server (in IST)
+ * has already rolled over. Pure, so the service can pass `new Date()` and tests can
+ * pass a fixed instant.
  */
 export function resolvePeriodWindow(
   period: BudgetPeriod,
   now: Date,
+  timezone?: string,
   startDate?: Date,
   endDate?: Date,
 ): DateWindow {
-  const year = now.getFullYear();
-  const month = now.getMonth();
-  const date = now.getDate();
+  const zone = safeTimezone(timezone);
 
   switch (period) {
     case BudgetPeriod.Yearly:
-      return {
-        from: new Date(year, 0, 1, 0, 0, 0, 0),
-        to: new Date(year, 11, 31, 23, 59, 59, 999),
-      };
+      return zonedYearWindow(now, zone);
 
-    case BudgetPeriod.Weekly: {
-      const day = now.getDay(); // 0 = Sunday … 6 = Saturday
-      const daysSinceMonday = (day + 6) % 7;
-      const from = new Date(year, month, date - daysSinceMonday, 0, 0, 0, 0);
-      const to = new Date(from.getFullYear(), from.getMonth(), from.getDate() + 6, 23, 59, 59, 999);
-      return { from, to };
+    case BudgetPeriod.Weekly:
+      return zonedWeekWindow(now, zone);
+
+    case BudgetPeriod.Custom: {
+      const fallback = zonedMonthWindow(now, zone);
+      return { from: startDate ?? fallback.from, to: endDate ?? now };
     }
-
-    case BudgetPeriod.Custom:
-      return {
-        from: startDate ?? new Date(year, month, 1, 0, 0, 0, 0),
-        to: endDate ?? now,
-      };
 
     case BudgetPeriod.Monthly:
     default:
-      return {
-        from: new Date(year, month, 1, 0, 0, 0, 0),
-        to: new Date(year, month + 1, 0, 23, 59, 59, 999),
-      };
+      return zonedMonthWindow(now, zone);
   }
 }

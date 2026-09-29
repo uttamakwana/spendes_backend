@@ -135,7 +135,12 @@ export class IncomeService {
   }
 
   async summary(userId: string, query: IncomeSummaryQuery): Promise<IncomeSummary> {
-    const agg = await this.repository.summarize(userId, { from: query.from, to: query.to });
+    const currency = await this.resolveDefaultCurrency(userId);
+    const agg = await this.repository.summarize(
+      userId,
+      { from: query.from, to: query.to },
+      currency,
+    );
     const overall = agg.overall[0] ?? { totalAmount: 0, count: 0 };
 
     return {

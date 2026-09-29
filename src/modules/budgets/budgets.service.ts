@@ -3,6 +3,7 @@ import { buildSort } from '../../common/utils/pagination';
 import { paginate } from '../../common/utils/response';
 import type { PaginatedData } from '../../common/types/api-response';
 import { createLogger } from '../../logger';
+import { safeTimezone } from '../../common/utils/timezone';
 import { expensesService } from '../expenses/expenses.service';
 import { usersService } from '../users/users.service';
 import { resolvePeriodWindow } from './budget-period.util';
@@ -98,7 +99,15 @@ export class BudgetsService {
 
   /** Resolves the active window and live spend for a budget, then maps to the response. */
   private async computeResponse(userId: string, budget: BudgetDocument): Promise<BudgetResponse> {
-    const window = resolvePeriodWindow(budget.period, new Date(), budget.startDate, budget.endDate);
+    // The period is the owner's calendar month/week, not the server's.
+    const timezone = await this.resolveTimezone(userId);
+    const window = resolvePeriodWindow(
+      budget.period,
+      new Date(),
+      timezone,
+      budget.startDate,
+      budget.endDate,
+    );
     const spent = await expensesService.sumForPeriod(userId, window, budget.category);
     return toBudgetResponse(budget, window, spent);
   }
@@ -107,6 +116,12 @@ export class BudgetsService {
   private async resolveDefaultCurrency(userId: string): Promise<string> {
     const user = await usersService.findEntityById(userId);
     return user?.defaultCurrency ?? 'INR';
+  }
+
+  /** The owner's IANA zone; `safeTimezone` covers accounts created before we stored one. */
+  private async resolveTimezone(userId: string): Promise<string> {
+    const user = await usersService.findEntityById(userId);
+    return safeTimezone(user?.timezone);
   }
 }
 

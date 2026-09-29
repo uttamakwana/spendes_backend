@@ -27,6 +27,9 @@ const emiFields = {
   autoDebit: z.boolean().optional(),
   isActive: z.boolean().optional(),
   notes: z.string().trim().max(1000).optional(),
+  // How many installments are already paid (e.g. an existing loan). Not stored —
+  // the service translates it into the right `startDate` so the schedule shows it.
+  installmentsPaid: z.number().int().min(0).max(1200).optional(),
 };
 
 /** Payload for `POST /emis`. `name`, `type`, `amount`, `frequency`, `startDate` are required. */

@@ -1,6 +1,6 @@
 import { model, Schema, type Types } from 'mongoose';
 import type { BaseDocument } from '../../database/base.repository';
-import { NotificationType } from './notifications.enums';
+import { DisputeReason, NotificationType } from './notifications.enums';
 
 /**
  * A single in-app notification delivered to exactly one recipient (`userId`). The
@@ -30,8 +30,14 @@ export interface NotificationDocument extends BaseDocument {
   amount?: number;
   currency?: string;
   isRead: boolean;
+  /** Set when the recipient answered "looks right" — the acknowledgement half of consent. */
+  isConfirmed: boolean;
   /** Set when the recipient flagged a `SplitAdded`/`MembershipInherited` as wrong. */
   isDisputed: boolean;
+  /** Why they flagged it — makes the reply to its author actionable. */
+  disputeReason?: DisputeReason;
+  /** Optional free-text the recipient added when flagging (shown to its author). */
+  disputeNote?: string;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -51,7 +57,10 @@ const notificationSchema = new Schema<NotificationDocument>(
     amount: { type: Number, min: 0 },
     currency: { type: String, uppercase: true, trim: true },
     isRead: { type: Boolean, default: false },
+    isConfirmed: { type: Boolean, default: false },
     isDisputed: { type: Boolean, default: false },
+    disputeReason: { type: String, enum: Object.values(DisputeReason) },
+    disputeNote: { type: String, trim: true, maxlength: 280 },
   },
   { timestamps: true, collection: 'notifications' },
 );

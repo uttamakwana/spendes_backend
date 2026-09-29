@@ -9,16 +9,19 @@ import { incomeRouter } from './modules/income/income.routes';
 import { groupsRouter } from './modules/groups/groups.routes';
 import { splitsRouter } from './modules/splits/splits.routes';
 import { friendsRouter } from './modules/friends/friends.routes';
+import { balancesRouter } from './modules/balances/balances.routes';
 import { budgetsRouter } from './modules/budgets/budgets.routes';
 import { emisRouter } from './modules/emis/emis.routes';
 import { goalsRouter } from './modules/goals/goals.routes';
 import { investmentsRouter } from './modules/investments/investments.routes';
 import { analyticsRouter } from './modules/analytics/analytics.routes';
+import { aiRouter } from './modules/ai/ai.routes';
 import { notificationsRouter } from './modules/notifications/notifications.routes';
 import { pushRouter } from './modules/push/push.routes';
 import { waitlistRouter } from './modules/waitlist/waitlist.routes';
 import { adminRouter } from './modules/admin/admin.routes';
 import { appRouter } from './modules/app/app.routes';
+import { referenceRouter } from './modules/reference/reference.routes';
 import { healthRouter } from './health/health.routes';
 
 export interface AppInfo {
@@ -58,14 +61,20 @@ apiRouter.use('/groups', groupsRouter);
 // router so the bare `/groups/:id` routes match first; deeper paths fall through.
 apiRouter.use('/groups/:groupId', splitsRouter);
 apiRouter.use('/friends', friendsRouter);
+// Cross-group + friendship roll-up of who owes whom.
+apiRouter.use('/balances', balancesRouter);
 apiRouter.use('/budgets', budgetsRouter);
 apiRouter.use('/emis', emisRouter);
 apiRouter.use('/goals', goalsRouter);
 apiRouter.use('/investments', investmentsRouter);
 apiRouter.use('/analytics', analyticsRouter);
+// Natural-language expense entry + the AI monthly spending summary.
+apiRouter.use('/ai', aiRouter);
 apiRouter.use('/notifications', notificationsRouter);
 apiRouter.use('/push', pushRouter);
 apiRouter.use('/waitlist', waitlistRouter);
 apiRouter.use('/admin', adminRouter);
 apiRouter.use('/app', appRouter);
+// Public reference data (countries + currencies) — needed before anyone signs up.
+apiRouter.use('/reference', referenceRouter);
 apiRouter.use('/health', healthRouter);

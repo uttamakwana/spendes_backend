@@ -1,20 +1,21 @@
 import { config, SmsProviderName } from '../../../config';
 import { createLogger } from '../../../logger';
 import { ConsoleSmsProvider } from './console-sms.provider';
+import { TwilioSmsProvider } from './twilio-sms.provider';
 import type { SmsProvider } from './sms.types';
 
 /**
- * Selects the active {@link SmsProvider} from `SMS_PROVIDER` config. Only the
- * console (dev) gateway is implemented today — add a class and a `case` to ship a
- * real one without touching any caller. Replaces the provider factory that lived
- * in NestJS's `auth.module.ts`.
+ * Selects the active {@link SmsProvider} from `SMS_PROVIDER` config: `console` for
+ * development, `twilio` for real delivery (including outside India — a domestic
+ * gateway can't text a US number). Add a class and a `case` to ship another.
  */
 function createSmsProvider(): SmsProvider {
   switch (config.sms.provider) {
     case SmsProviderName.Console:
       return new ConsoleSmsProvider();
-    // case SmsProviderName.Twilio: return new TwilioSmsProvider();  // wire up when integrated
-    // case SmsProviderName.Msg91:  return new Msg91SmsProvider();
+    case SmsProviderName.Twilio:
+      return new TwilioSmsProvider();
+    // case SmsProviderName.Msg91:  return new Msg91SmsProvider();  // India-only; wire up if wanted
     default:
       throw new Error(
         `SMS provider "${config.sms.provider}" is not implemented yet. Set SMS_PROVIDER=console.`,

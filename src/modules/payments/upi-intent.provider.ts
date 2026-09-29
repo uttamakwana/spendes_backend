@@ -1,5 +1,6 @@
 import { BadRequestException } from '../../common/errors/http-exception';
-import type { PaymentIntent, PaymentProvider, UpiIntentRequest } from './payment.types';
+import { PaymentHandleType } from '../../common/reference/countries';
+import type { PaymentIntent, PaymentIntentRequest, PaymentProvider } from './payment.types';
 
 /** Money is expressed to 2 decimals in the UPI `am` parameter. */
 const toAmount = (value: number): number => Math.round(value * 100) / 100;
@@ -19,9 +20,16 @@ const toAmount = (value: number): number => Math.round(value * 100) / 100;
  */
 export class UpiIntentProvider implements PaymentProvider {
   readonly name = 'upi_intent';
+  readonly railLabel = 'UPI';
+  readonly handleType = PaymentHandleType.Upi;
 
-  createUpiIntent(request: UpiIntentRequest): PaymentIntent {
-    const payeeVpa = request.payeeVpa?.trim();
+  /** UPI is an Indian rupee rail; it cannot send anything else. */
+  supportsCurrency(currency: string): boolean {
+    return currency.toUpperCase() === 'INR';
+  }
+
+  createIntent(request: PaymentIntentRequest): PaymentIntent {
+    const payeeVpa = request.handleValue?.trim();
     const payeeName = request.payeeName?.trim();
     if (!payeeVpa) {
       throw new BadRequestException('A payee UPI id (VPA) is required to build a UPI payment');
@@ -30,7 +38,7 @@ export class UpiIntentProvider implements PaymentProvider {
       throw new BadRequestException('UPI payment amount must be greater than zero');
     }
 
-    const currency = (request.currency ?? 'INR').toUpperCase();
+    const currency = (request.currency || 'INR').toUpperCase();
     const amount = toAmount(request.amount);
 
     const enc = encodeURIComponent;
@@ -52,13 +60,15 @@ export class UpiIntentProvider implements PaymentProvider {
 
     return {
       provider: this.name,
+      handleType: this.handleType,
       uri: `upi://pay?${params.join('&')}`,
-      payeeVpa,
+      payeeHandle: payeeVpa,
       payeeName: payeeName || payeeVpa,
       amount,
       currency,
       note: request.note,
       transactionRef: request.transactionRef,
+      railLabel: this.railLabel,
     };
   }
 }

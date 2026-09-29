@@ -1,6 +1,7 @@
 import { type FilterQuery, Types } from 'mongoose';
 import { BaseRepository } from '../../database/base.repository';
 import { NotificationModel, type NotificationDocument } from './notification.model';
+import { DisputeReason, NotificationType } from './notifications.enums';
 
 /**
  * Data access for notifications. Inherits generic CRUD + pagination from
@@ -32,11 +33,68 @@ export class NotificationsRepository extends BaseRepository<NotificationDocument
     });
   }
 
-  /** Flags one notification as disputed (and read), scoped to its owner; throws 404 otherwise. */
-  markDisputed(id: string, userId: string): Promise<NotificationDocument> {
+  /** Marks one notification confirmed ("looks right") and read; throws 404 if not found/owned. */
+  markConfirmed(id: string, userId: string): Promise<NotificationDocument> {
     return this.findOneAndUpdate({ _id: id, userId } as FilterQuery<NotificationDocument>, {
-      $set: { isDisputed: true, isRead: true },
+      $set: { isConfirmed: true, isRead: true },
     });
+  }
+
+  /** Flags one notification as disputed (and read), scoped to its owner; throws 404 otherwise. */
+  markDisputed(
+    id: string,
+    userId: string,
+    reason?: DisputeReason,
+    note?: string,
+  ): Promise<NotificationDocument> {
+    return this.findOneAndUpdate({ _id: id, userId } as FilterQuery<NotificationDocument>, {
+      $set: {
+        isDisputed: true,
+        isRead: true,
+        ...(reason ? { disputeReason: reason } : {}),
+        ...(note ? { disputeNote: note } : {}),
+      },
+    });
+  }
+
+  /**
+   * Marks the *connection-level* items for one group ("X added you", "you inherited
+   * this group") as confirmed. Confirming a connection settles those once and for
+   * all; individual `SplitAdded` rows stay separately reviewable, because agreeing
+   * you know someone is not agreeing to every amount they enter.
+   */
+  async confirmConnectionItems(userId: string, groupId: string): Promise<number> {
+    const result = await this.model
+      .updateMany(
+        {
+          userId: new Types.ObjectId(userId),
+          groupId: new Types.ObjectId(groupId),
+          type: { $in: [NotificationType.FriendAdded, NotificationType.MembershipInherited] },
+          isDisputed: false,
+        },
+        { $set: { isConfirmed: true, isRead: true } },
+      )
+      .exec();
+    return result.modifiedCount ?? 0;
+  }
+
+  /**
+   * Drops an untouched "X added you as a friend" row for a group. Used when a split
+   * from the same person lands moments later: two rows for one action is noise, so
+   * the split notification (which names them too) supersedes it.
+   */
+  async deleteUnactionedFriendAdd(userId: string, groupId: string): Promise<number> {
+    const result = await this.model
+      .deleteMany({
+        userId: new Types.ObjectId(userId),
+        groupId: new Types.ObjectId(groupId),
+        type: NotificationType.FriendAdded,
+        isRead: false,
+        isConfirmed: false,
+        isDisputed: false,
+      })
+      .exec();
+    return result.deletedCount ?? 0;
   }
 
   /** Marks every unread notification for a user read. Returns how many changed. */

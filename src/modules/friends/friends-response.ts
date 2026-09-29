@@ -1,3 +1,6 @@
+import type { MemberConsent } from '../groups/groups.enums';
+import type { PaymentHandleType } from '../../common/reference/countries';
+
 /**
  * Public shape of a friend (a 1-on-1 friendship). `friendshipId` is the underlying
  * direct group's id — used for the friend's expenses/settlements routes. `net` is
@@ -16,8 +19,24 @@ export interface FriendResponse {
   isRegistered: boolean;
   dialCode?: string;
   phoneNumber?: string;
+  /** The friend's settle-up rail, so the Pay button can name it before we build an intent. */
+  paymentHandleType?: PaymentHandleType;
+  /** True when their rail can actually carry this friendship's currency. */
+  canPayDirectly: boolean;
   currency: string;
   net: number;
+  /**
+   * Your own answer to "they added you — is this right?". `pending` means this
+   * friendship arrived unasked-for and you haven't responded yet; it never blocks
+   * anything, it just tells the UI to ask instead of pretending you're old friends.
+   */
+  consent: MemberConsent;
+  /** Their side of the same question — `pending` while they haven't responded to you. */
+  theirConsent: MemberConsent;
+  /** True when you created this friendship (so there is nothing for you to confirm). */
+  addedByMe: boolean;
+  /** Convenience for the list UI: they added you and you still owe them an answer. */
+  needsMyReview: boolean;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -25,10 +44,17 @@ export interface FriendResponse {
 /** Result of `GET /friends`: every friend plus the headline owed/owe totals. */
 export interface FriendsListResponse {
   friends: FriendResponse[];
+  /** The currency the totals below are in — the user's own. */
+  currency: string;
   /** Sum of positive balances — total others owe you across friends. */
   totalYouAreOwed: number;
   /** Sum of negative balances — total you owe across friends. */
   totalYouOwe: number;
   /** `totalYouAreOwed - totalYouOwe`. */
   net: number;
+  /**
+   * How many friendships are kept in another currency and so sit outside the
+   * totals. Spendes never converts, so they are counted, not added.
+   */
+  otherCurrencyCount: number;
 }

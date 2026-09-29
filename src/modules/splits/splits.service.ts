@@ -8,6 +8,7 @@ import { createLogger } from '../../logger';
 import { GroupKind, GroupMemberStatus, GroupRole } from '../groups/groups.enums';
 import type { GroupDocument, GroupMember } from '../groups/groups.model';
 import { groupsRepository } from '../groups/groups.repository';
+import { groupsService } from '../groups/groups.service';
 import { usersService } from '../users/users.service';
 import type { UserDocument } from '../users/users.model';
 import { paymentsService } from '../payments/payments.service';
@@ -63,6 +64,7 @@ export class SplitsService {
     dto: CreateGroupExpenseInput,
   ): Promise<GroupExpenseResponse> {
     const group = await groupsRepository.findForMemberOrThrow(groupId, userId);
+    this.assertGroupCurrency(group, dto.currency);
 
     const referenced = [...dto.paidBy.map((p) => p.memberId), ...dto.splits.map((s) => s.memberId)];
     this.assertMembersPresent(group, referenced);
@@ -95,6 +97,10 @@ export class SplitsService {
 
     await this.syncPersonalShares(group, expense);
     await this.notifySplitMembers(group, expense, userId);
+
+    // Adding your own expense here is participation, which implies you accept the
+    // group/friendship — one less "is this right?" to answer later.
+    await groupsService.confirmMembershipQuietly(userId, group._id.toString());
 
     this.logger.info(`Group expense created: ${expense._id.toString()} in group ${groupId}`);
     return toGroupExpenseResponse(expense);
@@ -172,6 +178,7 @@ export class SplitsService {
     dto: CreateSettlementInput,
   ): Promise<SettlementResponse> {
     const group = await groupsRepository.findForMemberOrThrow(groupId, userId);
+    this.assertGroupCurrency(group, dto.currency);
     const fromMemberId = dto.fromMemberId ?? this.callerMember(group, userId)._id.toString();
     const toMemberId = dto.toMemberId;
 
@@ -213,6 +220,11 @@ export class SplitsService {
       settlementId: settlement._id.toString(),
     });
 
+    // Paying someone (or marking their payment received) is as clear a "yes, I know
+    // this person and this is right" as tapping a confirm button, so we never ask
+    // for that tap afterwards.
+    await groupsService.confirmMembershipQuietly(userId, group._id.toString());
+
     this.logger.info(`Settlement recorded: ${settlement._id.toString()} in group ${groupId}`);
     return toSettlementResponse(settlement);
   }
@@ -249,20 +261,25 @@ export class SplitsService {
 
     if (!payee.userId) {
       throw new BadRequestException(
-        'This member has not joined Spendes yet, so they have no UPI id',
+        'This member has not joined Spendes yet, so there is nowhere to send the money',
       );
     }
     const payeeUser = await usersService.findEntityById(payee.userId.toString());
-    if (!payeeUser?.upiId) {
-      throw new BadRequestException('This member has not added a UPI id to receive payments');
+    if (!payeeUser?.paymentHandle?.value) {
+      throw new BadRequestException(
+        'This member has not added a way to be paid yet. You can still mark the payment as done.',
+      );
     }
 
     // A unique per-payment reference (the UPI `tr`). The client passes it back when
     // recording, so a payment correlates to one settlement and can't double-record.
     const reference = randomUUID().replace(/-/g, '');
 
-    const intent = paymentsService.createUpiIntent({
-      payeeVpa: payeeUser.upiId,
+    // The rail follows the payee, not the payer: an Indian member is paid over UPI
+    // and an American one over Venmo, in the same group on the same evening.
+    const intent = paymentsService.createIntent({
+      handleType: payeeUser.paymentHandle.type,
+      handleValue: payeeUser.paymentHandle.value,
       payeeName: payee.displayName,
       amount: dto.amount,
       currency: group.currency,
@@ -273,9 +290,11 @@ export class SplitsService {
     return {
       provider: intent.provider,
       uri: intent.uri,
+      handleType: intent.handleType,
+      railLabel: intent.railLabel,
       toMemberId: payee._id.toString(),
       payeeName: intent.payeeName,
-      payeeVpa: intent.payeeVpa,
+      payeeHandle: intent.payeeHandle,
       amount: intent.amount,
       currency: intent.currency,
       note: intent.note,
@@ -459,6 +478,7 @@ export class SplitsService {
         actorUserId,
         description: expense.description,
         amount: expense.amount,
+        shareAmount: split.amount,
         currency: expense.currency,
         groupId: group._id.toString(),
         groupExpenseId: expense._id.toString(),
@@ -504,6 +524,22 @@ export class SplitsService {
   }
 
   // --- Internals -------------------------------------------------------------
+
+  /**
+   * A group keeps one set of books. Spendes never converts currency, so an expense
+   * in a different currency than its group would be silently added to balances that
+   * mean something else — a $180 dinner making a ₹ balance 180 worse. Refuse it and
+   * point at the fix: the group's currency is chosen when it is created.
+   */
+  private assertGroupCurrency(group: GroupDocument, currency?: string): void {
+    if (!currency) return;
+    const requested = currency.toUpperCase();
+    if (requested !== group.currency) {
+      throw new BadRequestException(
+        `This group is in ${group.currency}, so amounts have to be in ${group.currency} too — Spendes doesn't convert between currencies. Start a separate ${requested} group if you split in both.`,
+      );
+    }
+  }
 
   private presentMembers(group: GroupDocument): GroupMember[] {
     return group.members.filter((m) => m.status !== GroupMemberStatus.Removed);

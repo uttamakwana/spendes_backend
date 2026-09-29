@@ -90,7 +90,11 @@ export interface AnalyticsOverviewResponse {
     /** Combined monthly-equivalent of active SIP plans. */
     totalMonthlySip: number;
   };
-  /** What friends owe you and what you owe them, derived from direct splits. */
+  /**
+   * What you're owed and what you owe, netted per person across **every** friendship
+   * and group — not just direct splits, and not scoped to `period`: a debt from
+   * March is still a debt today. Full breakdown at `GET /balances`.
+   */
   balances: {
     youAreOwed: number;
     youOwe: number;

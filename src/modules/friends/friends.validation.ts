@@ -19,6 +19,16 @@ export const addFriendSchema = z
       .regex(/^\d{10}$/, 'phoneNumber must be exactly 10 digits')
       .optional(),
     displayName: z.string().trim().min(1).max(80).optional(),
+    /**
+     * The currency this friendship keeps its books in. Defaults to yours — worth
+     * setting for a friend abroad, since a friendship (like a group) has exactly
+     * one currency and nothing is ever converted.
+     */
+    currency: z
+      .string()
+      .trim()
+      .regex(/^[A-Za-z]{3}$/, 'currency must be a 3-letter ISO code')
+      .optional(),
   })
   .refine((d) => Boolean(d.userId) || Boolean(d.phoneNumber), {
     message: 'Provide either a userId or a phoneNumber to add a friend',
@@ -28,3 +38,14 @@ export type AddFriendInput = z.infer<typeof addFriendSchema>;
 
 /** Route param for the friend-scoped routes: the friendship (direct group) id. */
 export const friendParamsSchema = z.object({ friendshipId: objectId });
+
+/**
+ * Body for `POST /friends/:friendshipId/decline`. Just an optional note — the reason
+ * itself is implicit ("I don't recognise this person"), and nothing is deleted, so
+ * there is no destructive choice to confirm.
+ */
+export const declineFriendSchema = z.object({
+  note: z.string().trim().max(280).optional(),
+});
+
+export type DeclineFriendInput = z.infer<typeof declineFriendSchema>;

@@ -1,6 +1,7 @@
 import { type FilterQuery, Types, type UpdateQuery } from 'mongoose';
 import { ExpenseSource } from '../../common/enums/expense-source';
 import { BaseRepository } from '../../database/base.repository';
+import { safeTimezone } from '../../common/utils/timezone';
 import { ExpenseModel, type ExpenseDocument } from './expenses.model';
 
 /** Inclusive date window applied to `spentAt` when summarizing. */
@@ -81,6 +82,7 @@ export class ExpensesRepository extends BaseRepository<ExpenseDocument> {
     userId: string,
     range: { from: Date; to: Date },
     category?: string,
+    currency?: string,
   ): Promise<number> {
     const match: FilterQuery<ExpenseDocument> = {
       userId: new Types.ObjectId(userId),
@@ -88,6 +90,10 @@ export class ExpensesRepository extends BaseRepository<ExpenseDocument> {
     };
     if (category) {
       match.category = category;
+    }
+    // Only money of one kind can be added up — see `summarize`.
+    if (currency) {
+      match.currency = currency;
     }
     const [result] = await this.aggregate<{ total: number }>([
       { $match: match },
@@ -100,8 +106,21 @@ export class ExpensesRepository extends BaseRepository<ExpenseDocument> {
    * Rolls up a user's spend over an optional date window into overall totals plus
    * per-category and per-payment-method breakdowns, in a single round trip.
    */
-  async summarize(userId: string, range: ExpenseDateRange): Promise<ExpenseSummaryAggregate> {
+  /**
+   * `currency` scopes the totals to one set of books. A share materialised from a
+   * group that settles in another currency is a real expense and stays in the list,
+   * but Spendes never converts, so adding a $20 row to a ₹ total would produce a
+   * number that means nothing.
+   */
+  async summarize(
+    userId: string,
+    range: ExpenseDateRange,
+    currency?: string,
+  ): Promise<ExpenseSummaryAggregate> {
     const match: FilterQuery<ExpenseDocument> = { userId: new Types.ObjectId(userId) };
+    if (currency) {
+      match.currency = currency;
+    }
     if (range.from || range.to) {
       match.spentAt = {
         ...(range.from ? { $gte: range.from } : {}),
@@ -154,21 +173,75 @@ export class ExpensesRepository extends BaseRepository<ExpenseDocument> {
     return result ?? { overall: [], byCategory: [], byPaymentMethod: [] };
   }
 
+  /**
+   * Weekend vs weekday spend within a window. The split is drawn in the user's own
+   * zone, so a Friday-night dinner counts as a Friday for someone in New York even
+   * though the server (in IST) had already rolled into Saturday.
+   *
+   * Exists for the AI monthly insight: "you spent more on dining, mostly at
+   * weekends" is a far more useful sentence than "you spent more on dining", and
+   * the model can only say it if the shape of the week is in the data it is given.
+   */
+  async weekendSplit(
+    userId: string,
+    range: { from: Date; to: Date },
+    timezone?: string,
+    currency?: string,
+  ): Promise<{ weekendAmount: number; weekdayAmount: number }> {
+    const zone = safeTimezone(timezone);
+    const rows = await this.aggregate<{ _id: number; total: number }>([
+      {
+        $match: {
+          userId: new Types.ObjectId(userId),
+          ...(currency ? { currency } : {}),
+          spentAt: { $gte: range.from, $lte: range.to },
+        },
+      },
+      {
+        // Mongo's $dayOfWeek is 1=Sunday … 7=Saturday.
+        $group: {
+          _id: { $dayOfWeek: { date: '$spentAt', timezone: zone } },
+          total: { $sum: '$amount' },
+        },
+      },
+    ]);
+
+    let weekendAmount = 0;
+    let weekdayAmount = 0;
+    for (const row of rows) {
+      if (row._id === 1 || row._id === 7) {
+        weekendAmount += row.total;
+      } else {
+        weekdayAmount += row.total;
+      }
+    }
+    return { weekendAmount, weekdayAmount };
+  }
+
   /** Per-(year,month) expense totals within a window — for the analytics cash-flow trend. */
   async monthlyTotals(
     userId: string,
     range: { from: Date; to: Date },
+    timezone?: string,
+    currency?: string,
   ): Promise<{ year: number; month: number; total: number }[]> {
+    // Mongo does the calendar arithmetic in the caller's zone, so a late-evening
+    // transaction lands in the month the *user* was in when they made it.
+    const zone = safeTimezone(timezone);
     const rows = await this.aggregate<{ _id: { year: number; month: number }; total: number }>([
       {
         $match: {
           userId: new Types.ObjectId(userId),
+          ...(currency ? { currency } : {}),
           spentAt: { $gte: range.from, $lte: range.to },
         },
       },
       {
         $group: {
-          _id: { year: { $year: '$spentAt' }, month: { $month: '$spentAt' } },
+          _id: {
+            year: { $year: { date: '$spentAt', timezone: zone } },
+            month: { $month: { date: '$spentAt', timezone: zone } },
+          },
           total: { $sum: '$amount' },
         },
       },

@@ -42,17 +42,24 @@ Write-Host "Phones: A=$phoneA B=$phoneB C=$phoneC D=$phoneD F=$phoneF`n"
 
 # 1. Register user A
 Api 'POST' '/auth/otp/request' $null @{ dialCode = '+91'; phoneNumber = $phoneA } | Out-Null
-$regA = Api 'POST' '/auth/register' $null @{ dialCode = '+91'; phoneNumber = $phoneA; firstName = 'Smoke'; lastName = 'A'; email = "smoke$rA@example.com"; defaultCurrency = 'INR'; otp = '123456' }
+$regA = Api 'POST' '/auth/register' $null @{ dialCode = '+91'; phoneNumber = $phoneA; country = 'IN'; timezone = 'Asia/Kolkata'; firstName = 'Smoke'; lastName = 'A'; email = "smoke$rA@example.com"; defaultCurrency = 'INR'; paymentHandle = @{ type = 'upi'; value = 'signup@okaxis' }; otp = '123456' }
 Check 'register A' $regA.ok "status=$($regA.status)"
 $tokenA = $regA.body.data.tokens.accessToken
 $userIdA = $regA.body.data.user.id
 Check 'A plan=free' ($regA.body.data.user.plan -eq 'free') "plan=$($regA.body.data.user.plan)"
+# The optional UPI id offered during onboarding is captured at sign-up.
+Check 'A payment handle captured at sign-up' ($regA.body.data.user.paymentHandle.value -eq 'signup@okaxis') "handle=$($regA.body.data.user.paymentHandle.value)"
+Check 'A country + currency + timezone' ($regA.body.data.user.country -eq 'IN' -and $regA.body.data.user.defaultCurrency -eq 'INR' -and $regA.body.data.user.timezone -eq 'Asia/Kolkata') "country=$($regA.body.data.user.country)"
+$badUpi = Api 'POST' '/auth/register' $null @{ dialCode = '+91'; phoneNumber = '9123456789'; firstName = 'Bad'; lastName = 'Upi'; paymentHandle = @{ type = 'upi'; value = 'not-a-upi' }; otp = '123456' }
+Check 'malformed sign-up handle -> 400' ($badUpi.status -eq 400) "status=$($badUpi.status)"
 
 # 2. Profile + set UPI id
 $me = Api 'GET' '/users/me' $tokenA $null
 Check 'GET /users/me' ($me.ok -and $me.body.data.id -eq $userIdA) "id match"
-$upd = Api 'PATCH' '/users/me' $tokenA @{ upiId = 'smokeuser@okhdfcbank' }
-Check 'set upiId' ($upd.ok -and $upd.body.data.upiId -eq 'smokeuser@okhdfcbank') "upiId=$($upd.body.data.upiId)"
+$upd = Api 'PATCH' '/users/me' $tokenA @{ paymentHandle = @{ type = 'upi'; value = 'smokeuser@okhdfcbank' } }
+Check 'set payment handle' ($upd.ok -and $upd.body.data.paymentHandle.value -eq 'smokeuser@okhdfcbank') "handle=$($upd.body.data.paymentHandle.value)"
+$wrongRail = Api 'PATCH' '/users/me' $tokenA @{ paymentHandle = @{ type = 'venmo'; value = 'not a venmo name!' } }
+Check 'handle validated per rail -> 400' ($wrongRail.status -eq 400) "status=$($wrongRail.status)"
 
 # 3. Personal expense + income
 $exp = Api 'POST' '/expenses' $tokenA @{ amount = 250.5; category = 'Food'; paymentMethod = 'upi'; merchant = 'Cafe' }
@@ -192,6 +199,31 @@ Check 'friend settlement recorded' ($fset.ok) "status=$($fset.status)"
 $friendGet2 = Api 'GET' "/friends/$fid" $tokenA $null
 Check 'friend net = 0 after settle' (Approx $friendGet2.body.data.net 0) "net=$($friendGet2.body.data.net)"
 
+# A group keeps one set of books: an expense in another currency is refused rather
+# than added to a balance that means something else (Spendes never converts).
+$wrongCur = Api 'POST' "/friends/$fid/expenses" $tokenA @{ description = 'Paid in dollars'; amount = 50; currency = 'USD'; splitStrategy = 'equal'; paidBy = @(@{ memberId = $fMine; amount = 50 }); splits = @(@{ memberId = $fMine }, @{ memberId = $fFriend }) }
+Check 'expense in another currency -> 400' ($wrongCur.status -eq 400) "status=$($wrongCur.status)"
+
+# A friendship can keep its books in another currency, and then sits outside the
+# headline totals instead of being added to them.
+$usdFriend = Api 'POST' '/friends' $tokenA @{ phoneNumber = '9700000123'; displayName = 'Dollar Dan'; currency = 'USD' }
+Check 'friendship in another currency' ($usdFriend.ok -and $usdFriend.body.data.currency -eq 'USD') "currency=$($usdFriend.body.data.currency)"
+$usdId = $usdFriend.body.data.friendshipId
+Api 'POST' "/friends/$usdId/expenses" $tokenA @{ description = 'Hosting'; amount = 40; currency = 'USD'; splitStrategy = 'equal'; paidBy = @(@{ memberId = $usdFriend.body.data.myMemberId; amount = 40 }); splits = @(@{ memberId = $usdFriend.body.data.myMemberId }, @{ memberId = $usdFriend.body.data.friendMemberId }) } | Out-Null
+$flAfter = Api 'GET' '/friends' $tokenA $null
+# Frank is settled by now, so the only outstanding balance is the $20 Dan owes.
+# It must NOT appear in the rupee total — that leak is exactly what this catches.
+Check 'a USD balance stays out of the INR total' ($flAfter.body.data.currency -eq 'INR' -and (Approx $flAfter.body.data.totalYouAreOwed 0)) "owed=$($flAfter.body.data.totalYouAreOwed) $($flAfter.body.data.currency)"
+$usdRow = $flAfter.body.data.friends | Where-Object { $_.friendshipId -eq $usdId }
+Check 'but shows on its own row in USD' ($usdRow.currency -eq 'USD' -and (Approx $usdRow.net 20)) "net=$($usdRow.net) $($usdRow.currency)"
+# The personal books are one currency too. A's rupee spending is 250.5 personal +
+# 650 group shares + 250 friend share = 1150.5; the $20 share from the USD
+# friendship is listed but not added, which is what this pins down (it would read
+# 1170.5 if a dollar were being counted as a rupee).
+$sumAfter = Api 'GET' '/expenses/summary' $tokenA $null
+Check 'personal totals stay in one currency' ($sumAfter.body.data.currency -eq 'INR' -and (Approx $sumAfter.body.data.totalAmount 1150.5)) "total=$($sumAfter.body.data.totalAmount) $($sumAfter.body.data.currency)"
+Check 'the other-currency friend is counted, not added' ($flAfter.body.data.otherCurrencyCount -eq 1) "n=$($flAfter.body.data.otherCurrencyCount)"
+
 # A standard group id is not a friend
 $notFriend = Api 'GET' "/friends/$gid" $tokenA $null
 Check 'standard group id not a friend -> 404' ($notFriend.status -eq 404) "status=$($notFriend.status)"
@@ -321,6 +353,120 @@ $verBad = Api 'GET' '/app/version?platform=android&version=not-a-version' $null 
 Check 'invalid version -> 400' ($verBad.status -eq 400) "status=$($verBad.status)"
 $verAdmin = Api 'PUT' '/app/version/android' $tokenA @{ latestVersion = '2.0.0'; minSupportedVersion = '1.5.0'; storeUrl = 'https://play.google.com/store/apps/details?id=com.spendes' }
 Check 'non-admin cannot set version config -> 403' ($verAdmin.status -eq 403) "status=$($verAdmin.status)"
+
+# 21. Split requests — the review flow (someone adds you, then splits with you).
+# Reuses Dan (step 10) as the person being added and Bob (step 9) as the second
+# reviewer: /auth/otp/request allows only 3 per minute and the script already spends
+# all three, so this section registers nobody new.
+$phoneR = $phoneD
+$tokenR = $tokenD
+
+$addR = Api 'POST' '/friends' $tokenA @{ dialCode = '+91'; phoneNumber = $phoneR }
+Check 'A adds R as a friend' $addR.ok "status=$($addR.status)"
+$fidR = $addR.body.data.friendshipId
+$aMem = $addR.body.data.myMemberId
+$rMem = $addR.body.data.friendMemberId
+Check 'the adder needs no confirmation' ($addR.body.data.consent -eq 'confirmed' -and $addR.body.data.addedByMe -eq $true) "consent=$($addR.body.data.consent)"
+
+$splitR = Api 'POST' "/friends/$fidR/expenses" $tokenA @{ description = 'Dinner'; amount = 100; splitStrategy = 'equal'; paidBy = @(@{ memberId = $aMem; amount = 100 }); splits = @(@{ memberId = $aMem }, @{ memberId = $rMem }) }
+Check 'A splits 100 with R' $splitR.ok "status=$($splitR.status)"
+
+$inboxR = Api 'GET' '/notifications' $tokenR $null
+$rSplitRows = @($inboxR.body.data.items | Where-Object { $_.type -eq 'split_added' })
+$rFriendRows = @($inboxR.body.data.items | Where-Object { $_.type -eq 'friend_added' })
+Check 'R sees one split request' ($rSplitRows.Count -eq 1) "split_added=$($rSplitRows.Count)"
+Check 'the friend-add row is folded into it' ($rFriendRows.Count -eq 0) "friend_added=$($rFriendRows.Count)"
+Check 'the request asks to be reviewed' ($rSplitRows[0].needsReview -eq $true -and $rSplitRows[0].canConfirm -eq $true) "needsReview=$($rSplitRows[0].needsReview)"
+Check 'the copy leads with the share' ($rSplitRows[0].body -like '*your share is*50*') "body=$($rSplitRows[0].body)"
+$nidR = $rSplitRows[0].id
+
+$friendR = (Api 'GET' '/friends' $tokenR $null).body.data.friends | Where-Object { $_.friendshipId -eq $fidR }
+Check 'the friend list marks it pending' ($friendR.consent -eq 'pending' -and $friendR.needsMyReview -eq $true) "consent=$($friendR.consent)"
+
+$detR = Api 'GET' "/notifications/$nidR" $tokenR $null
+Check 'R opens the request' $detR.ok "status=$($detR.status)"
+Check 'it identifies who added them' ($detR.body.data.actor.phoneNumber -eq $phoneA) "phone=$($detR.body.data.actor.phoneNumber)"
+Check 'it shows the share and the bill' ($detR.body.data.expense.myShare -eq 50 -and $detR.body.data.expense.amount -eq 100) "share=$($detR.body.data.expense.myShare)"
+Check 'it offers UPI (A has a VPA)' ($detR.body.data.actions.canPay -eq $true -and (Approx $detR.body.data.actions.payAmount 50)) "canPay=$($detR.body.data.actions.canPay)"
+Check 'opening it marks it read' ($detR.body.data.isRead -eq $true) "isRead=$($detR.body.data.isRead)"
+
+$confR = Api 'POST' "/notifications/$nidR/confirm" $tokenR $null
+Check 'R confirms the request' ($confR.ok -and $confR.body.data.isConfirmed -eq $true) "status=$($confR.status)"
+$friendR2 = (Api 'GET' "/friends/$fidR" $tokenR $null).body.data
+Check 'confirming makes the friendship mutual' ($friendR2.consent -eq 'confirmed' -and $friendR2.needsMyReview -eq $false) "consent=$($friendR2.consent)"
+Check 'and moves no money' (Approx $friendR2.net -50) "net=$($friendR2.net)"
+$confRowA = @((Api 'GET' '/notifications' $tokenA $null).body.data.items | Where-Object { $_.type -eq 'connection_confirmed' })
+Check 'A is told it was confirmed' ($confRowA.Count -ge 1) "rows=$($confRowA.Count)"
+$reconf = Api 'POST' "/notifications/$nidR/confirm" $tokenR $null
+Check 'confirming twice is harmless' $reconf.ok "status=$($reconf.status)"
+
+# Flagging: non-blocking pushback that names a reason
+Api 'POST' "/friends/$fidR/expenses" $tokenA @{ description = 'Cab'; amount = 400; splitStrategy = 'equal'; paidBy = @(@{ memberId = $aMem; amount = 400 }); splits = @(@{ memberId = $aMem }, @{ memberId = $rMem }) } | Out-Null
+$nid2 = @((Api 'GET' '/notifications' $tokenR $null).body.data.items | Where-Object { $_.type -eq 'split_added' -and $_.isConfirmed -eq $false })[0].id
+$flagR = Api 'POST' "/notifications/$nid2/dispute" $tokenR @{ reason = 'wrong_amount' }
+Check 'R flags the second split' ($flagR.ok -and $flagR.body.data.disputeReason -eq 'wrong_amount') "reason=$($flagR.body.data.disputeReason)"
+$dRowA = @((Api 'GET' '/notifications' $tokenA $null).body.data.items | Where-Object { $_.type -eq 'split_disputed' })[0]
+Check 'A hears the reason, not just flagged' ($dRowA.body -like '*amount*') "body=$($dRowA.body)"
+Check 'flagging changes no balance' (Approx (Api 'GET' "/friends/$fidR" $tokenR $null).body.data.net -250) "net=-250"
+Check 'flagging an amount keeps the person' ((Api 'GET' "/friends/$fidR" $tokenR $null).body.data.consent -eq 'confirmed') "still confirmed"
+Check 'double-flagging is refused' ((Api 'POST' "/notifications/$nid2/dispute" $tokenR @{ reason = 'not_mine' }).status -eq 400) "400"
+
+# "I don't know this person" declines the connection (and deletes nothing)
+$addBob = Api 'POST' '/friends' $tokenA @{ dialCode = '+91'; phoneNumber = $phoneB }
+$fidBob = $addBob.body.data.friendshipId
+$bobRow = @((Api 'GET' '/notifications' $tokenB $null).body.data.items | Where-Object { $_.type -eq 'friend_added' -and $_.groupId -eq $fidBob })[0]
+Check 'Bob gets a bare friend request' ($null -ne $bobRow) "found"
+$decBob = Api 'POST' "/notifications/$($bobRow.id)/dispute" $tokenB @{ reason = 'dont_know_them' }
+Check 'Bob says he does not know A' $decBob.ok "status=$($decBob.status)"
+Check 'the connection is declined' ((Api 'GET' "/friends/$fidBob" $tokenB $null).body.data.consent -eq 'declined') "declined"
+$decRowA = @((Api 'GET' '/notifications' $tokenA $null).body.data.items | Where-Object { $_.type -eq 'connection_declined' })
+Check 'A is told, with the wrong-number hint' ($decRowA.Count -ge 1 -and $decRowA[0].body -like '*number*') "body=$($decRowA[0].body)"
+Check 'declining deletes nothing' ((Api 'GET' "/friends/$fidBob" $tokenA $null).ok) "A still sees the friendship"
+
+# The friend screen can answer the same question
+$bobAddsR = Api 'POST' '/friends' $tokenB @{ dialCode = '+91'; phoneNumber = $phoneR }
+$fidBR = $bobAddsR.body.data.friendshipId
+Check 'that side starts pending' (((Api 'GET' "/friends/$fidBR" $tokenR $null).body.data).needsMyReview -eq $true) "pending"
+$confFriend = Api 'POST' "/friends/$fidBR/confirm" $tokenR $null
+Check 'confirming from the friend screen works too' ($confFriend.ok -and $confFriend.body.data.consent -eq 'confirmed') "consent=$($confFriend.body.data.consent)"
+$bobInbox = @((Api 'GET' '/notifications' $tokenB $null).body.data.items | Where-Object { $_.type -eq 'connection_confirmed' })
+Check 'Bob is told R confirmed him' ($bobInbox.Count -ge 1) "rows=$($bobInbox.Count)"
+
+# 22. Balances roll-up — one number per person, across groups *and* friendships.
+# The Smoke Trip group is settled by now, so give it a fresh unsettled expense: A
+# pays 600, split equally with Bob. Bob is not a 1-on-1 friend, so a friends-only
+# total misses him entirely — which is the whole point of the roll-up.
+$rollExp = Api 'POST' "/groups/$gid/expenses" $tokenA @{ description = 'Late dinner'; amount = 600; splitStrategy = 'equal'; paidBy = @(@{ memberId = $mA; amount = 600 }); splits = @(@{ memberId = $mA }, @{ memberId = $mB }) }
+Check 'unsettled group expense created' $rollExp.ok "status=$($rollExp.status)"
+
+$friendsOnly = (Api 'GET' '/friends' $tokenA $null).body.data
+$roll = Api 'GET' '/balances' $tokenA $null
+Check 'balances roll-up loads' $roll.ok "status=$($roll.status)"
+Check 'roll-up is in the home currency' ($roll.body.data.currency -eq 'INR') "currency=$($roll.body.data.currency)"
+
+$bobRow = $roll.body.data.people | Where-Object { $_.name -like 'Bob*' }
+Check 'a group-only debtor appears' ($null -ne $bobRow) "found=$($null -ne $bobRow)"
+Check 'and names the group it came from' ($bobRow.sources[0].kind -eq 'group' -and $bobRow.sources[0].name -eq 'Smoke Trip') "source=$($bobRow.sources[0].name)"
+# Not the full 300: Bob was already owed 225 in this group, so his half of the new
+# dinner nets against that credit and leaves him owing 75. That netting is the
+# feature — the group's own balances are what get rolled up, not raw shares.
+Check 'the group debt is netted, not raw' (Approx $bobRow.net 75) "net=$($bobRow.net)"
+
+# Dan owes A from the 1-on-1 only, so that row is friendship-sourced.
+$danRow = $roll.body.data.people | Where-Object { $_.friendshipId -eq $fidR }
+Check 'a friendship balance appears too' ($null -ne $danRow -and $danRow.sources[0].kind -eq 'friend') "kind=$($danRow.sources[0].kind)"
+Check 'a friendship row carries its friendshipId' ($null -ne $danRow.friendshipId) "id set"
+
+# The headline total now exceeds the friends-only one, because the group counts.
+Check 'roll-up counts more than friendships alone' ($roll.body.data.youAreOwed -gt $friendsOnly.totalYouAreOwed) "roll-up=$($roll.body.data.youAreOwed) friends=$($friendsOnly.totalYouAreOwed)"
+Check 'and it is friendships + the group' (Approx $roll.body.data.youAreOwed ($friendsOnly.totalYouAreOwed + 300)) "roll-up=$($roll.body.data.youAreOwed)"
+
+# And the home overview reports the same figures, not a second opinion.
+$ovBal = (Api 'GET' '/analytics/overview' $tokenA $null).body.data.balances
+Check 'home overview matches the roll-up' ((Approx $ovBal.youAreOwed $roll.body.data.youAreOwed) -and (Approx $ovBal.youOwe $roll.body.data.youOwe)) "owed=$($ovBal.youAreOwed) owe=$($ovBal.youOwe)"
+
+# The USD friendship stays out of the rupee totals, listed on its own.
+Check 'another currency is separated, not summed' ($roll.body.data.otherCurrency.Count -ge 1) "n=$($roll.body.data.otherCurrency.Count)"
 
 # Unauthorized check
 $noauth = Api 'GET' '/users/me' $null $null

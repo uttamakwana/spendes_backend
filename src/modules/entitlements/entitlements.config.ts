@@ -15,6 +15,8 @@ export enum Feature {
   RecurringAutomation = 'recurring_automation',
   DataExport = 'data_export',
   ReceiptScan = 'receipt_scan',
+  /** Natural-language expense entry and the AI monthly summary — both cost per call. */
+  AiAssistant = 'ai_assistant',
   MultiCurrency = 'multi_currency',
 }
 

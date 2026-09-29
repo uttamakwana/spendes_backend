@@ -1,6 +1,6 @@
 import { model, Schema, type Types } from 'mongoose';
 import type { BaseDocument } from '../../database/base.repository';
-import { GroupKind, GroupMemberStatus, GroupRole } from './groups.enums';
+import { GroupKind, GroupMemberStatus, GroupRole, MemberConsent } from './groups.enums';
 
 /**
  * One membership inside a group, stored as an embedded subdocument with its own
@@ -18,7 +18,18 @@ export interface GroupMember {
   displayName: string;
   role: GroupRole;
   status: GroupMemberStatus;
+  /**
+   * Whether this member has acknowledged the group/friendship. Absent on documents
+   * written before consent existed — read it through {@link resolveMemberConsent},
+   * never directly, so legacy members stay {@link MemberConsent.Confirmed}.
+   */
+  consent?: MemberConsent;
   joinedAt: Date;
+}
+
+/** Reads a member's consent, treating pre-consent (legacy) members as confirmed. */
+export function resolveMemberConsent(member?: Pick<GroupMember, 'consent'> | null): MemberConsent {
+  return member?.consent ?? MemberConsent.Confirmed;
 }
 
 /**
@@ -55,6 +66,9 @@ const groupMemberSchema = new Schema<GroupMember>(
       enum: Object.values(GroupMemberStatus),
       default: GroupMemberStatus.Active,
     },
+    // Deliberately no default: an absent value means "written before consent
+    // existed" and resolves to Confirmed. New members set it explicitly.
+    consent: { type: String, enum: Object.values(MemberConsent) },
     joinedAt: { type: Date, default: () => new Date() },
   },
   { _id: true },

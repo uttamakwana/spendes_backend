@@ -45,6 +45,8 @@ interface SpendBucket {
 export interface ExpenseSummary {
   from?: Date;
   to?: Date;
+  /** The currency these totals are in — the user's own; other currencies are excluded. */
+  currency: string;
   totalAmount: number;
   /**
    * Actual cash paid out of pocket over the window — sums each personal row's `amount`
@@ -206,13 +208,24 @@ export class ExpensesService {
     return this.repository.existsGroupShare(userId, groupExpenseId);
   }
 
-  /** Total spend for a user within a date window (optionally one category). Used by budgets. */
-  sumForPeriod(
+  /**
+   * Total spend for a user within a date window (optionally one category). Used by
+   * budgets. Scoped to the user's own currency: a share materialised from a group
+   * that settles in another one is real spending, but adding it to this total
+   * without converting would make the number meaningless.
+   */
+  async sumForPeriod(
     userId: string,
     range: { from: Date; to: Date },
     category?: string,
   ): Promise<number> {
-    return this.repository.sumAmount(userId, range, category);
+    return this.repository.sumAmount(userId, range, category, await this.homeCurrency(userId));
+  }
+
+  /** The currency this user's own books are kept in. */
+  private async homeCurrency(userId: string): Promise<string> {
+    const user = await usersService.findEntityById(userId);
+    return user?.defaultCurrency ?? 'INR';
   }
 
   /** Group-share rows are owned by their group expense; they can't be edited/deleted here. */
@@ -225,12 +238,18 @@ export class ExpensesService {
   }
 
   async summary(userId: string, query: ExpenseSummaryQuery): Promise<ExpenseSummary> {
-    const agg = await this.repository.summarize(userId, { from: query.from, to: query.to });
+    const currency = await this.homeCurrency(userId);
+    const agg = await this.repository.summarize(
+      userId,
+      { from: query.from, to: query.to },
+      currency,
+    );
     const overall = agg.overall[0] ?? { totalAmount: 0, cashOutflow: 0, count: 0 };
 
     return {
       from: query.from,
       to: query.to,
+      currency,
       totalAmount: toAmount(overall.totalAmount),
       cashOutflow: toAmount(overall.cashOutflow ?? 0),
       count: overall.count,

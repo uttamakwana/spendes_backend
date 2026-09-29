@@ -1,6 +1,6 @@
 import { type FilterQuery, Types } from 'mongoose';
 import { BaseRepository } from '../../database/base.repository';
-import { GroupKind, GroupMemberStatus } from './groups.enums';
+import { GroupKind, GroupMemberStatus, MemberConsent } from './groups.enums';
 import { GroupModel, type GroupDocument } from './groups.model';
 
 /**
@@ -125,6 +125,37 @@ export class GroupsRepository extends BaseRepository<GroupDocument> {
       .exec();
 
     return result.modifiedCount ?? 0;
+  }
+
+  /**
+   * Records how a member feels about being in this group/friendship. Consent never
+   * gates anything (the balances are real either way) — it drives the "someone
+   * added you, is this right?" surface in the app.
+   *
+   * `onlyIfPending` is how *implicit* confirmation works: paying, settling, or
+   * adding your own expense here upgrades a pending membership to confirmed, but
+   * must never quietly overwrite a deliberate `Declined`.
+   */
+  async setMemberConsent(
+    groupId: string,
+    userId: string,
+    consent: MemberConsent,
+    options: { onlyIfPending?: boolean } = {},
+  ): Promise<boolean> {
+    const memberFilter: Record<string, unknown> = { 'm.userId': new Types.ObjectId(userId) };
+    if (options.onlyIfPending) {
+      memberFilter['m.consent'] = MemberConsent.Pending;
+    }
+
+    const result = await this.model
+      .updateOne(
+        { _id: new Types.ObjectId(groupId) },
+        { $set: { 'members.$[m].consent': consent } },
+        { arrayFilters: [memberFilter] },
+      )
+      .exec();
+
+    return (result.modifiedCount ?? 0) > 0;
   }
 }
 

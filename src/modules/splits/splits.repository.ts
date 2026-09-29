@@ -1,4 +1,4 @@
-import { type FilterQuery } from 'mongoose';
+import { type FilterQuery, Types } from 'mongoose';
 import { BaseRepository } from '../../database/base.repository';
 import { GroupExpenseModel, type GroupExpenseDocument } from './group-expense.model';
 import { SettlementModel, type SettlementDocument } from './settlement.model';
@@ -18,6 +18,17 @@ export class GroupExpensesRepository extends BaseRepository<GroupExpenseDocument
   findAllForGroup(groupId: string): Promise<GroupExpenseDocument[]> {
     return this.find({ groupId } as FilterQuery<GroupExpenseDocument>);
   }
+
+  /**
+   * Every expense across several groups in one query — for the cross-group balance
+   * roll-up, which would otherwise fan out into a query per group.
+   */
+  findAllForGroups(groupIds: string[]): Promise<GroupExpenseDocument[]> {
+    if (groupIds.length === 0) return Promise.resolve([]);
+    return this.find({
+      groupId: { $in: groupIds.map((id) => new Types.ObjectId(id)) },
+    } as FilterQuery<GroupExpenseDocument>);
+  }
 }
 
 export const groupExpensesRepository = new GroupExpensesRepository();
@@ -31,6 +42,14 @@ export class SettlementsRepository extends BaseRepository<SettlementDocument> {
   /** Every settlement in a group (used to compute balances). */
   findAllForGroup(groupId: string): Promise<SettlementDocument[]> {
     return this.find({ groupId } as FilterQuery<SettlementDocument>);
+  }
+
+  /** Every settlement across several groups in one query (see the expense twin). */
+  findAllForGroups(groupIds: string[]): Promise<SettlementDocument[]> {
+    if (groupIds.length === 0) return Promise.resolve([]);
+    return this.find({
+      groupId: { $in: groupIds.map((id) => new Types.ObjectId(id)) },
+    } as FilterQuery<SettlementDocument>);
   }
 
   /** The settlement matching a UPI transaction reference within a group, if any (idempotency). */

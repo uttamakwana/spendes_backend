@@ -1,6 +1,7 @@
 import { model, Schema, type Types } from 'mongoose';
 import { Role } from '../../common/enums/role';
 import { PlanType } from '../../common/enums/plan-type';
+import { PaymentHandleType } from '../../common/reference/countries';
 import type { BaseDocument } from '../../database/base.repository';
 
 /**
@@ -49,10 +50,22 @@ export interface UserDocument extends BaseDocument {
   roles: Role[];
   /** Subscription tier. Defaults to `free`; paid gating stays off until Pro ships. */
   plan: PlanType;
-  /** Optional UPI VPA (e.g. `name@bank`) so others can pay this user via a UPI intent. */
-  upiId?: string;
+  /**
+   * How this user gets paid back when settling up — the rail and the handle on it
+   * (a UPI VPA in India, a PayPal.me or Venmo username elsewhere). Optional: the
+   * app tracks who owes whom regardless, this only powers the one-tap Pay button.
+   */
+  paymentHandle?: PaymentHandle;
   /** Per-category push opt-outs. Defaults applied via {@link resolveNotificationPreferences}. */
   notificationPreferences?: NotificationPreferences;
+  /**
+   * ISO 3166-1 alpha-2. Chosen at sign-up and the source of this user's currency,
+   * phone rule and default settle-up rail. A dial code can't stand in for it — +1
+   * is both the US and Canada, which use different currencies.
+   */
+  country: string;
+  /** IANA zone (e.g. `America/New_York`), captured from the device at sign-up. */
+  timezone: string;
   defaultCurrency: string;
   isPhoneVerified: boolean;
   isEmailVerified: boolean;
@@ -62,6 +75,12 @@ export interface UserDocument extends BaseDocument {
   lastLoginAt?: Date;
   createdAt: Date;
   updatedAt: Date;
+}
+
+/** A settle-up destination: which rail, and the handle on it. */
+export interface PaymentHandle {
+  type: PaymentHandleType;
+  value: string;
 }
 
 const userSchema = new Schema<UserDocument>(
@@ -75,7 +94,15 @@ const userSchema = new Schema<UserDocument>(
     avatarKey: { type: String },
     roles: { type: [String], enum: Object.values(Role), default: [Role.User] },
     plan: { type: String, enum: Object.values(PlanType), default: PlanType.Free },
-    upiId: { type: String, trim: true },
+    paymentHandle: {
+      type: new Schema<PaymentHandle>(
+        {
+          type: { type: String, enum: Object.values(PaymentHandleType), required: true },
+          value: { type: String, required: true, trim: true },
+        },
+        { _id: false },
+      ),
+    },
     notificationPreferences: {
       type: new Schema<NotificationPreferences>(
         {
@@ -88,6 +115,8 @@ const userSchema = new Schema<UserDocument>(
       ),
       default: () => ({}),
     },
+    country: { type: String, default: 'IN', uppercase: true, trim: true },
+    timezone: { type: String, default: 'Asia/Kolkata', trim: true },
     defaultCurrency: { type: String, default: 'INR', uppercase: true, trim: true },
     isPhoneVerified: { type: Boolean, default: false },
     isEmailVerified: { type: Boolean, default: false },
