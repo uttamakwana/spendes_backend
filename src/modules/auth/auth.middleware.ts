@@ -39,7 +39,9 @@ export async function authenticate(
 
     req.user = {
       id: payload.sub,
-      roles: payload.roles,
+      // Roles come from the database, not the token: a demoted admin must lose
+      // access immediately, not when their access token happens to expire.
+      roles: user.roles ?? payload.roles,
       plan: user.plan ?? PlanType.Free,
       phoneNumber: user.phoneNumber,
       email: user.email,

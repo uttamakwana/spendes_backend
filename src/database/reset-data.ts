@@ -15,6 +15,7 @@ const logger = createLogger('db:reset');
  *   • `users`     — accounts stay signed up (no re-OTP every time)
  *   • `categories`— seeded reference data (you asked to never lose these)
  *   • `waitlist`  — marketing signups from the landing page
+ *   • `app_versions` / `admin_audit_logs` — release config and the admin audit trail
  *
  * Everything else (expenses, income, budgets, emis, goals, investments, groups,
  * splits, settlements, notifications, push tokens, otp codes) is cleared.
@@ -23,7 +24,7 @@ const logger = createLogger('db:reset');
  *   npm run db:reset            # preview
  *   npm run db:reset -- --yes   # actually wipe
  */
-const PRESERVE = new Set(['users', 'categories', 'waitlist']);
+const PRESERVE = new Set(['users', 'categories', 'waitlist', 'app_versions', 'admin_audit_logs']);
 
 async function main(): Promise<void> {
   guardProduction(logger);
@@ -61,7 +62,7 @@ async function main(): Promise<void> {
       // Categories are preserved, but make sure the defaults exist even on a fresh DB.
       await seedCategories();
       logger.info(
-        `✅ Reset complete — ${total} document(s) deleted. Users, categories & waitlist kept.`,
+        `✅ Reset complete — ${total} document(s) deleted. Users, categories, waitlist, app versions & audit log kept.`,
       );
     } else {
       logger.info(

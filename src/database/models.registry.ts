@@ -19,3 +19,8 @@ export { GroupModel } from '../modules/groups/groups.model';
 export { GroupExpenseModel } from '../modules/splits/group-expense.model';
 export { SettlementModel } from '../modules/splits/settlement.model';
 export { OtpCodeModel } from '../modules/auth/otp/otp.model';
+export { InsightModel } from '../modules/ai/insight.model';
+export { AppVersionModel } from '../modules/app/app-version.model';
+export { AuthEventModel } from '../modules/auth/auth-event.model';
+export { AuditLogModel } from '../modules/admin/audit/audit-log.model';
+export { BroadcastModel } from '../modules/admin/broadcast.model';

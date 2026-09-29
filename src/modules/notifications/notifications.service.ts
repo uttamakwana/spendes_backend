@@ -40,6 +40,9 @@ const PUSH_CATEGORY: Record<NotificationType, keyof NotificationPreferences> = {
   [NotificationType.MembershipInherited]: 'splits',
   [NotificationType.ConnectionConfirmed]: 'splits',
   [NotificationType.ConnectionDeclined]: 'splits',
+  // Admin announcements are delivered by the admin module, not `emit`, so this
+  // entry is never consulted today; `reminders` is the closest opt-out if it is.
+  [NotificationType.Announcement]: 'reminders',
 };
 
 interface FriendAddedInput {

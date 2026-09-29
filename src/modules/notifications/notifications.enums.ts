@@ -22,6 +22,8 @@ export enum NotificationType {
   MembershipInherited = 'membership_inherited',
   ConnectionConfirmed = 'connection_confirmed',
   ConnectionDeclined = 'connection_declined',
+  /** A message sent by the Spendes team from the admin panel (broadcast or direct). */
+  Announcement = 'announcement',
 }
 
 /**

@@ -1,6 +1,7 @@
 import type { Request, Response } from 'express';
 import { asyncHandler } from '../../common/middleware/async-handler';
 import { sendSuccess } from '../../common/utils/response';
+import { auditService } from '../admin/audit/audit.service';
 import { appVersionService } from './app-version.service';
 import type {
   PlatformParam,
@@ -25,5 +26,12 @@ export const listVersionConfigs = asyncHandler(async (req: Request, res: Respons
 export const upsertVersionConfig = asyncHandler(async (req: Request, res: Response) => {
   const { platform } = req.params as unknown as PlatformParam;
   const config = await appVersionService.upsertConfig(platform, req.body as UpsertAppVersionInput);
+  await auditService.record(req, {
+    action: 'app_version.update',
+    targetType: 'app_version',
+    targetId: platform,
+    summary: `Updated ${platform} release config`,
+    after: req.body as Record<string, unknown>,
+  });
   sendSuccess(res, req, config, 'App version config saved successfully');
 });
